@@ -1,4 +1,4 @@
-import { FileSpreadsheet, Upload } from 'lucide-react';
+import { Database } from 'lucide-react';
 import { useUi } from '../store/ui';
 
 /** Topographic contour motif — structural, not data. */
@@ -25,25 +25,21 @@ export function EmptyState({ compact = false }: { compact?: boolean }) {
       <Contours />
       <h3 className="mt-3 text-[14px] font-bold">No telemetry source</h3>
       <p className="mt-1 max-w-[240px] text-[12.5px] leading-relaxed text-ink-2">
-        RAKSA only displays packets received from your Basecamp spreadsheet. Connect a Google Sheet or load a file to begin.
+        RAKSA only displays packets received from your Basecamp. Connect its Firebase Realtime Database to begin.
       </p>
       <div className="mt-4 flex w-full flex-col gap-2">
-        <button className="btn btn-primary h-9" onClick={() => openConnect('sheet')}>
-          <FileSpreadsheet size={15} />
-          Connect Google Sheet
-        </button>
-        <button className="btn h-9" onClick={() => openConnect('upload')}>
-          <Upload size={15} />
-          Upload .xlsx / .csv
+        <button className="btn btn-primary h-9" onClick={() => openConnect('firebase')}>
+          <Database size={15} />
+          Connect Firebase RTDB
         </button>
       </div>
       {!compact && (
         <div className="mt-5 w-full rounded-ctl border border-dashed border-line-strong bg-canvas/60 p-3 text-left">
-          <div className="label mb-1.5">Accepted row formats</div>
+          <div className="label mb-1.5">Accepted packet formats</div>
           <p className="text-[11.5px] leading-relaxed text-ink-2">
-            Columns: <span className="num text-[11px] text-ink">ID, Lat, Lon, MDPL, Suhu, Status</span> (+ RSSI, SNR, Timestamp).
+            Structured JSON at <span className="num text-[11px] text-ink">/hikers/{'{deviceId}'}</span> with ID, coordinates, MDPL, temperature, status and timestamp.
           </p>
-          <p className="mt-1.5 text-[11.5px] leading-relaxed text-ink-2">Or one raw LoRa payload per row:</p>
+          <p className="mt-1.5 text-[11.5px] leading-relaxed text-ink-2">Raw LoRa payload strings are also accepted:</p>
           <code className="num mt-1 block break-all rounded-chip border border-line bg-surface px-2 py-1 text-[10.5px] text-ink-2">
             ID|lat|lon|mdpl|temp|STATUS[|rssi|snr]
           </code>

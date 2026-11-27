@@ -1,20 +1,7 @@
 import { create } from 'zustand';
-import type { LogEntry, Packet, ParseResult } from '../types';
+import type { LogEntry, Packet } from '../types';
 
-/**
- * Rows without an explicit timestamp get the time the dashboard first saw them.
- * Keyed by row number + payload so repeated polls keep stable timestamps.
- */
-const seen = new Map<string, number>();
-export const fallbackTs = (row: number, raw: string): number => {
-  const key = `${row}|${raw}`;
-  let t = seen.get(key);
-  if (t === undefined) {
-    t = Date.now();
-    seen.set(key, t);
-  }
-  return t;
-};
+export type FirebaseConnectionState = 'disconnected' | 'connecting' | 'connected' | 'error';
 
 interface TelemetryState {
   entries: LogEntry[];
@@ -23,18 +10,14 @@ interface TelemetryState {
   valid: number;
   sos: number;
   corrupt: number;
-  mapping: string[];
-  fileName?: string;
   lastSyncAt?: number;
-  latencyMs?: number;
-  syncing: boolean;
+  connectionState: FirebaseConnectionState;
   error?: string;
-  /** increments when rows changed — drives the heartbeat micro-animation */
   pulse: number;
 
-  ingest: (r: ParseResult, meta?: { latencyMs?: number; fileName?: string }) => void;
-  setSyncing: (s: boolean) => void;
-  setError: (e?: string) => void;
+  ingestEvent: (entry: LogEntry) => void;
+  setConnectionState: (state: FirebaseConnectionState) => void;
+  setError: (error?: string) => void;
   reset: () => void;
 }
 
@@ -45,50 +28,36 @@ const EMPTY = {
   valid: 0,
   sos: 0,
   corrupt: 0,
-  mapping: [] as string[],
-  fileName: undefined,
   lastSyncAt: undefined,
-  latencyMs: undefined,
   error: undefined,
 };
 
-export const useTelemetry = create<TelemetryState>((set, get) => ({
+export const useTelemetry = create<TelemetryState>((set) => ({
   ...EMPTY,
-  syncing: false,
+  connectionState: 'disconnected',
   pulse: 0,
 
-  ingest: (r, meta) => {
-    const prev = get();
-    const tracks: Record<string, Packet[]> = {};
-    for (const e of r.entries) {
-      if (!e.packet) continue;
-      (tracks[e.packet.id] ??= []).push(e.packet);
-    }
-    for (const t of Object.values(tracks)) t.sort((a, b) => a.ts - b.ts || a.row - b.row);
-
-    const lastNew = r.entries[r.entries.length - 1];
-    const lastOld = prev.entries[prev.entries.length - 1];
-    const changed = r.entries.length !== prev.entries.length || lastNew?.raw !== lastOld?.raw || meta?.fileName !== undefined;
-
-    set({
-      entries: r.entries,
-      tracks,
-      total: r.total,
-      valid: r.valid,
-      sos: r.sos,
-      corrupt: r.corrupt,
-      mapping: r.mapping,
-      fileName: meta?.fileName,
-      lastSyncAt: Date.now(),
-      latencyMs: meta?.latencyMs,
-      error: undefined,
-      pulse: changed ? prev.pulse + 1 : prev.pulse,
-    });
-  },
-  setSyncing: (syncing) => set({ syncing }),
+  ingestEvent: (entry) =>
+    set((state) => {
+      const entries = [...state.entries, entry];
+      const tracks = entry.packet
+        ? { ...state.tracks, [entry.packet.id]: [...(state.tracks[entry.packet.id] ?? []), entry.packet] }
+        : state.tracks;
+      const valid = state.valid + (entry.packet ? 1 : 0);
+      const sos = state.sos + (entry.kind === 'SOS' ? 1 : 0);
+      return {
+        entries,
+        tracks,
+        total: state.total + 1,
+        valid,
+        sos,
+        corrupt: state.corrupt + (entry.kind === 'CORRUPT' ? 1 : 0),
+        lastSyncAt: Date.now(),
+        error: undefined,
+        pulse: state.pulse + 1,
+      };
+    }),
+  setConnectionState: (connectionState) => set({ connectionState }),
   setError: (error) => set({ error }),
-  reset: () => {
-    seen.clear();
-    set({ ...EMPTY, syncing: false });
-  },
+  reset: () => set({ ...EMPTY, connectionState: 'disconnected', pulse: 0 }),
 }));

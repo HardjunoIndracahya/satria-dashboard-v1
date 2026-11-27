@@ -91,8 +91,8 @@ export function MapView({ hikers }: { hikers: Hiker[] }) {
   const [initialView] = useState(() => getCamera());
 
   const nodes = useConfig((s) => s.nodes);
-  const mode = useConfig((s) => s.mode);
   const hasEntries = useTelemetry((s) => s.total > 0);
+  const connectionState = useTelemetry((s) => s.connectionState);
 
   const selectedId = useUi((s) => s.selectedId);
   const focusNonce = useUi((s) => s.focusNonce);
@@ -310,7 +310,7 @@ export function MapView({ hikers }: { hikers: Hiker[] }) {
     [],
   );
 
-  const showEmptyNotice = mode === 'none' && !hasEntries && hikers.length === 0;
+  const showEmptyNotice = connectionState !== 'connected' && !hasEntries && hikers.length === 0;
 
   return (
     <div className="relative h-full w-full">

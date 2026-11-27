@@ -13,9 +13,9 @@ function Row({ label, children, warn = false }: { label: string; children: React
 }
 
 export function HealthPanel() {
-  const { total, valid, corrupt, latencyMs, lastSyncAt } = useTelemetry();
+  const { total, valid, corrupt, lastSyncAt } = useTelemetry();
+  const connectionState = useTelemetry((s) => s.connectionState);
   const nodes = useConfig((s) => s.nodes);
-  const mode = useConfig((s) => s.mode);
   const relays = nodes.filter((n) => n.type === 'relay');
   const activeRelays = relays.filter((n) => n.active).length;
   const has = total > 0;
@@ -36,8 +36,8 @@ export function HealthPanel() {
         {has ? <AnimatedNumber value={loss} decimals={1} /> : '—'}
         {has && '%'}
       </Row>
-      <Row label="Sync Latency (s)">
-        {mode === 'sheet' && latencyMs !== undefined ? <AnimatedNumber value={latencyMs / 1000} decimals={2} /> : '—'}
+      <Row label="Firebase Stream">
+        {connectionState}
       </Row>
       <Row label="Active Relays">
         {relays.length > 0 ? (
@@ -49,7 +49,7 @@ export function HealthPanel() {
           '—'
         )}
       </Row>
-      <Row label="Valid / Total Rows">
+      <Row label="Valid / Total Packets">
         {has ? (
           <>
             {valid} <span className="text-ink-muted">/</span> {total}

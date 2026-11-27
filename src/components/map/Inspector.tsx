@@ -235,7 +235,7 @@ function InspectorBody({
         <div className="flex items-center justify-between text-[11.5px] text-ink-muted">
           <span>
             Last packet <span className="num text-ink-2">{formatAgo(hiker.silentMs)}</span>
-            {hiker.latest.tsSource === 'ingest' && <span title="No timestamp in sheet — using time first received"> *</span>}
+            {hiker.latest.tsSource === 'ingest' && <span title="No packet timestamp — using time first received"> *</span>}
           </span>
           <span className="num">{hiker.track.length} pkts</span>
         </div>

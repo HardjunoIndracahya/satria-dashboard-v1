@@ -7,10 +7,13 @@ import { EmptyState } from './EmptyState';
 import { useConfig } from '../store/config';
 import { useTelemetry } from '../store/telemetry';
 import { useUi } from '../store/ui';
+import { getEnvironmentFirebaseConfig } from '../lib/firebase';
 import type { Hiker, SidebarFilter } from '../types';
 
 export function Sidebar({ hikers }: { hikers: Hiker[] }) {
-  const mode = useConfig((s) => s.mode);
+  const firebaseConfig = useConfig((s) => s.firebaseConfig);
+  const connectionDisabled = useConfig((s) => s.connectionDisabled);
+  const configured = !connectionDisabled && Boolean(firebaseConfig || getEnvironmentFirebaseConfig());
   const pairings = useConfig((s) => s.pairings);
   const acks = useConfig((s) => s.acks);
   const error = useTelemetry((s) => s.error);
@@ -84,19 +87,19 @@ export function Sidebar({ hikers }: { hikers: Hiker[] }) {
       </div>
 
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto p-2.5">
-        {hikers.length === 0 && mode === 'none' && <EmptyState />}
+        {hikers.length === 0 && !configured && <EmptyState />}
 
-        {hikers.length === 0 && mode !== 'none' && (
+        {hikers.length === 0 && configured && (
           <div className="px-4 py-10 text-center">
             <h3 className="text-[14px] font-bold">{error ? 'Source unreachable' : 'Awaiting valid packets'}</h3>
             <p className="mt-1 text-[12.5px] leading-relaxed text-ink-2">
               {error
                 ? error
                 : total > 0
-                  ? `${total} rows ingested, ${corrupt} quarantined. No row passed the integrity filter yet — see System Log.`
-                  : 'The spreadsheet is connected but contains no data rows yet.'}
+                  ? `${total} packets received, ${corrupt} quarantined. No packet passed the integrity filter yet — see System Log.`
+                  : 'Firebase is connected but no packets have arrived yet.'}
             </p>
-            <button className="btn mt-4" onClick={() => openConnect('sheet')}>
+            <button className="btn mt-4" onClick={() => openConnect('firebase')}>
               Connection settings
             </button>
           </div>

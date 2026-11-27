@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { AppView, BasemapId, SidebarFilter } from '../types';
 
-export type ConnectTab = 'sheet' | 'upload' | 'guide';
+export type ConnectTab = 'firebase' | 'guide';
 
 interface UiState {
   view: AppView;
@@ -58,7 +58,7 @@ export const useUi = create<UiState>((set, get) => ({
   sidebarOpen: true,
   scrubIndex: null,
   connectOpen: false,
-  connectTab: 'sheet',
+  connectTab: 'firebase',
   pairingId: null,
 
   setView: (view) => set({ view }),

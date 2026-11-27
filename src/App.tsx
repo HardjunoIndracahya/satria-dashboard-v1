@@ -7,14 +7,14 @@ import { DashboardView } from './views/DashboardView';
 import { RelayNodesView } from './views/RelayNodesView';
 import { SystemLogView } from './views/SystemLogView';
 import { useUi } from './store/ui';
-import { useAlarm, useHikers, useHotkeys, useSheetSync, useUnackedSos } from './hooks';
+import { useAlarm, useHikers, useHotkeys, useFirebaseStream, useUnackedSos } from './hooks';
 
 export default function App() {
   const view = useUi((s) => s.view);
   const hikers = useHikers();
   const unacked = useUnackedSos(hikers);
 
-  useSheetSync();
+  useFirebaseStream();
   useAlarm(unacked.length);
   useHotkeys();
 

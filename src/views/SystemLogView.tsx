@@ -22,7 +22,7 @@ function Tag({ e }: { e: LogEntry }) {
 
 export function SystemLogView() {
   const entries = useTelemetry((s) => s.entries);
-  const { total, valid, sos, corrupt, mapping, fileName } = useTelemetry();
+  const { total, valid, sos, corrupt } = useTelemetry();
   const openConnect = useUi((s) => s.openConnect);
   const [filter, setFilter] = useState<LogFilter>('all');
 
@@ -61,7 +61,7 @@ export function SystemLogView() {
           <div>
             <h2 className="text-[14px] font-bold">System Log</h2>
             <p className="num mt-0.5 text-[11.5px] text-ink-2">
-              {total} rows · {valid} valid · {sos} SOS · {corrupt} dropped · PDR {total ? pdr.toFixed(1) : '—'}%{fileName ? ` · ${fileName}` : ''}
+              {total} packets · {valid} valid · {sos} SOS · {corrupt} dropped · PDR {total ? pdr.toFixed(1) : '—'}%
             </p>
           </div>
           <div className="flex items-center gap-2.5">
@@ -90,21 +90,14 @@ export function SystemLogView() {
           </div>
         </header>
 
-        {mapping.length > 0 && (
-          <div className="border-b border-line bg-canvas/60 px-4 py-1.5 text-[11.5px] text-ink-2">
-            <span className="label mr-2">Column map</span>
-            <span className="num">{mapping.join('  ·  ')}</span>
-          </div>
-        )}
-
         {total === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
             <p className="text-[14px] font-bold">No rows ingested</p>
             <p className="max-w-[360px] text-[12.5px] leading-relaxed text-ink-2">
-              Every raw row received from the spreadsheet is audited here as valid or quarantined noise, with the exact rejection reason.
+              Every packet received from Firebase is audited here as valid or quarantined noise, with the exact rejection reason.
             </p>
-            <button className="btn btn-primary mt-2" onClick={() => openConnect('sheet')}>
-              Connect spreadsheet
+            <button className="btn btn-primary mt-2" onClick={() => openConnect('firebase')}>
+              Connect Firebase
             </button>
           </div>
         ) : (
@@ -156,7 +149,7 @@ export function SystemLogView() {
         )}
         {total > 0 && (
           <footer className="border-t border-line bg-canvas/60 px-4 py-1.5 text-[11px] text-ink-muted">
-            Newest first. * = no timestamp column in the sheet; time shown is when the dashboard first received the row.
+            Newest first. * = packet had no timestamp; time shown is when the dashboard first received it.
           </footer>
         )}
       </div>

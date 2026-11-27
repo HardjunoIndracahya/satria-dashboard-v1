@@ -1,162 +1,147 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, Copy, FileSpreadsheet, Link2, RefreshCw, Unplug, Upload } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Check, Copy, Database, Unplug } from 'lucide-react';
 import { toast } from 'sonner';
 import { Field, Modal, Segmented } from './ui';
 import { useConfig } from '../store/config';
-import { fallbackTs, useTelemetry } from '../store/telemetry';
+import { useTelemetry } from '../store/telemetry';
 import { useUi, type ConnectTab } from '../store/ui';
-import { parseFile, resolveSheetUrl } from '../lib/sheets';
-import { syncNow } from '../lib/queryClient';
-import { APPS_SCRIPT, ESP32_SNIPPET } from '../lib/guide';
+import { getEnvironmentFirebaseConfig, type FirebaseWebConfig } from '../lib/firebase';
+import { FIREBASE_ESP32_SNIPPET } from '../lib/guide';
 import { formatClock } from '../lib/format';
 
-const INTERVALS = [
-  { value: 5000, label: '5s' },
-  { value: 10000, label: '10s' },
-  { value: 30000, label: '30s' },
-  { value: 60000, label: '60s' },
-  { value: 0, label: 'Manual' },
-];
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
 
-/* ------------------------------ Sheets tab -------------------------------- */
-function SheetTab({ onDone }: { onDone: () => void }) {
-  const mode = useConfig((s) => s.mode);
-  const savedUrl = useConfig((s) => s.sheetUrl);
-  const savedInterval = useConfig((s) => s.intervalMs);
-  const offlineAfter = useConfig((s) => s.offlineAfterMin);
-  const connectSheet = useConfig((s) => s.connectSheet);
-  const setIntervalMs = useConfig((s) => s.setInterval);
-  const setOfflineAfter = useConfig((s) => s.setOfflineAfter);
-  const disconnect = useConfig((s) => s.disconnect);
+function readFirebaseConfig(input: string): { config?: FirebaseWebConfig; error?: string } {
+  const value = input.trim();
+  if (!value) return { error: 'Enter a Realtime Database URL or Firebase Web Config JSON.' };
 
-  const syncing = useTelemetry((s) => s.syncing);
-  const error = useTelemetry((s) => s.error);
-  const lastSyncAt = useTelemetry((s) => s.lastSyncAt);
-  const latencyMs = useTelemetry((s) => s.latencyMs);
-  const total = useTelemetry((s) => s.total);
-  const valid = useTelemetry((s) => s.valid);
+  if (value.startsWith('{')) {
+    try {
+      const parsed: unknown = JSON.parse(value);
+      if (!isRecord(parsed) || typeof parsed.databaseURL !== 'string') {
+        return { error: 'The Web Config JSON must include a databaseURL string.' };
+      }
+      const config: FirebaseWebConfig = { databaseURL: parsed.databaseURL };
+      for (const key of ['apiKey', 'authDomain', 'projectId', 'storageBucket', 'messagingSenderId', 'appId', 'measurementId'] as const) {
+        const field = parsed[key];
+        if (typeof field === 'string') config[key] = field;
+      }
+      return validDatabaseUrl(config);
+    } catch (error) {
+      return { error: `Invalid JSON: ${error instanceof Error ? error.message : 'unable to parse'}` };
+    }
+  }
 
-  const [url, setUrl] = useState(savedUrl);
-  const [interval, setLocalInterval] = useState(savedInterval);
-  const [awaitingSince, setAwaitingSince] = useState<number | null>(null);
+  return validDatabaseUrl({ databaseURL: value });
+}
 
-  const resolved = resolveSheetUrl(url);
-  const connected = mode === 'sheet';
-  const dirty = connected && url.trim() !== savedUrl.trim();
+function validDatabaseUrl(config: FirebaseWebConfig): { config?: FirebaseWebConfig; error?: string } {
+  try {
+    const url = new URL(config.databaseURL);
+    if (url.protocol !== 'https:') return { error: 'Use the HTTPS Realtime Database URL from Firebase Console.' };
+    return { config: { ...config, databaseURL: url.toString().replace(/\/$/, '') } };
+  } catch {
+    return { error: 'Enter a valid Realtime Database URL.' };
+  }
+}
+
+function FirebaseTab({ onDone }: { onDone: () => void }) {
+  const savedConfig = useConfig((state) => state.firebaseConfig);
+  const databaseRoot = useConfig((state) => state.databaseRoot);
+  const offlineAfterMin = useConfig((state) => state.offlineAfterMin);
+  const setOfflineAfter = useConfig((state) => state.setOfflineAfter);
+  const connectionDisabled = useConfig((state) => state.connectionDisabled);
+  const connectFirebase = useConfig((state) => state.connectFirebase);
+  const disconnect = useConfig((state) => state.disconnect);
+  const connectionState = useTelemetry((state) => state.connectionState);
+  const error = useTelemetry((state) => state.error);
+  const lastSyncAt = useTelemetry((state) => state.lastSyncAt);
+  const total = useTelemetry((state) => state.total);
+  const valid = useTelemetry((state) => state.valid);
+  const [input, setInput] = useState(() => (useConfig.getState().firebaseConfig ?? getEnvironmentFirebaseConfig())?.databaseURL ?? '');
+  const [root, setRoot] = useState(databaseRoot);
+  const parsed = useMemo(() => readFirebaseConfig(input), [input]);
+  const configured = !connectionDisabled && Boolean(savedConfig || getEnvironmentFirebaseConfig());
 
   useEffect(() => {
-    if (awaitingSince !== null && lastSyncAt && lastSyncAt >= awaitingSince && !error) {
-      setAwaitingSince(null);
-      toast.success('Spreadsheet connected', { description: `${valid} valid of ${total} rows` });
-      onDone();
-    }
-  }, [awaitingSince, lastSyncAt, error, valid, total, onDone]);
+    if (savedConfig) setInput(JSON.stringify(savedConfig, null, 2));
+  }, [savedConfig]);
 
-  const connect = () => {
-    if (!resolved) return;
-    useTelemetry.getState().reset();
-    setAwaitingSince(Date.now());
-    connectSheet(url.trim(), interval);
+  const statusText: Record<typeof connectionState, string> = {
+    disconnected: configured ? 'Disconnected' : 'Not configured',
+    connecting: 'Connecting…',
+    connected: 'Connected',
+    error: 'Connection error',
   };
 
   return (
     <div className="space-y-4">
-      <Field label="Google Sheets URL" hint="Share link, published CSV (/pub?output=csv), or Apps Script Web App (/exec).">
-        <div className="relative">
-          <Link2 size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-muted" />
-          <input
-            className="field !pl-8"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://docs.google.com/spreadsheets/d/…/edit"
-            spellCheck={false}
-            autoFocus
-          />
-        </div>
+      <Field
+        label="Firebase RTDB URL or Web Config JSON"
+        hint="Paste the databaseURL alone, or the complete Firebase Web App config object."
+        error={parsed.error}
+      >
+        <textarea
+          className="field min-h-[76px] resize-y font-mono text-[11.5px]"
+          value={input}
+          onChange={(event) => setInput(event.target.value)}
+          placeholder={'https://<project>-default-rtdb.asia-southeast1.firebasedatabase.app\n\nor paste the Firebase Web Config JSON'}
+          spellCheck={false}
+          autoFocus
+        />
+      </Field>
+      <Field label="Database root path" hint="Hiker snapshots are read from <root>/hikers/{deviceId}.">
+        <input className="field num" value={root} onChange={(event) => setRoot(event.target.value)} placeholder="/" />
+      </Field>
+      <Field label="Mark hikers offline after (min)">
+        <input
+          className="field num !w-[130px]"
+          type="number"
+          min={1}
+          max={240}
+          value={offlineAfterMin}
+          onChange={(event) => setOfflineAfter(Number(event.target.value) || 1)}
+        />
       </Field>
 
-      {url.trim() !== '' && (
-        <div className={`rounded-ctl border px-3 py-2 text-[12px] ${resolved ? 'border-forest/25 bg-forest-tint' : 'border-amber/40 bg-amber-tint'}`}>
-          {resolved ? (
-            <>
-              <div className="font-semibold text-forest">{resolved.label}</div>
-              <div className="num mt-0.5 break-all text-[11px] text-ink-2">{resolved.url}</div>
-            </>
-          ) : (
-            <span className="font-semibold text-amber-ink">Not a valid Google Sheets / endpoint URL.</span>
-          )}
-        </div>
-      )}
-
-      <div className="grid grid-cols-[1fr_auto] items-end gap-4">
-        <Field label="Polling interval">
-          <Segmented
-            value={interval}
-            options={INTERVALS}
-            onChange={(v) => {
-              setLocalInterval(v);
-              if (connected) setIntervalMs(v);
-            }}
-            ariaLabel="Polling interval"
-          />
-        </Field>
-        <Field label="Offline after (min)">
-          <input
-            className="field num !w-[110px]"
-            type="number"
-            min={1}
-            max={240}
-            value={offlineAfter}
-            onChange={(e) => setOfflineAfter(Number(e.target.value) || 1)}
-          />
-        </Field>
-      </div>
-
-      {connected && (
+      {configured && (
         <div className="rounded-ctl border border-line bg-canvas px-3 py-2.5">
           <div className="flex items-center justify-between">
-            <span className="label">Connection</span>
-            <span className={`text-[12px] font-semibold ${error ? 'text-amber' : syncing ? 'text-amber' : 'text-forest'}`}>
-              {syncing ? 'Syncing…' : error ? 'Error — retrying' : 'Live'}
+            <span className="label">Realtime connection (.info/connected)</span>
+            <span className={`text-[12px] font-semibold ${connectionState === 'connected' ? 'text-forest' : connectionState === 'error' ? 'text-amber' : 'text-ink-2'}`}>
+              {statusText[connectionState]}
             </span>
           </div>
-          <div className="num mt-1.5 grid grid-cols-3 gap-2 text-[12px]">
-            <div>
-              <div className="label !normal-case !tracking-normal">Last sync</div>
-              {lastSyncAt ? formatClock(lastSyncAt) : '—'}
-            </div>
-            <div>
-              <div className="label !normal-case !tracking-normal">Latency</div>
-              {latencyMs !== undefined ? `${(latencyMs / 1000).toFixed(2)} s` : '—'}
-            </div>
-            <div>
-              <div className="label !normal-case !tracking-normal">Valid / Total</div>
-              {valid} / {total}
-            </div>
+          <div className="num mt-1.5 flex flex-wrap gap-x-5 gap-y-1 text-[12px]">
+            <span>Last packet: {lastSyncAt ? formatClock(lastSyncAt) : '—'}</span>
+            <span>Valid / total: {valid} / {total}</span>
           </div>
           {error && <p className="mt-2 text-[12px] leading-relaxed text-amber-ink">{error}</p>}
         </div>
       )}
 
       <div className="flex items-center gap-2 pt-1">
-        {(!connected || dirty) && (
-          <button className="btn btn-primary" onClick={connect} disabled={!resolved}>
-            <FileSpreadsheet size={14} />
-            {dirty ? 'Reconnect' : 'Connect & Sync'}
-          </button>
-        )}
-        {connected && !dirty && (
-          <button className="btn btn-primary" onClick={() => void syncNow()} disabled={syncing}>
-            <RefreshCw size={14} className={syncing ? 'animate-spin' : ''} />
-            Sync Now
-          </button>
-        )}
-        {connected && (
+        <button
+          className="btn btn-primary"
+          disabled={!parsed.config}
+          onClick={() => {
+            if (!parsed.config) return;
+            connectFirebase(parsed.config, root.trim() || '/');
+            toast.success('Firebase listener starting');
+            onDone();
+          }}
+        >
+          <Database size={14} />
+          Connect to Firebase
+        </button>
+        {configured && (
           <button
             className="btn ml-auto text-ink-2"
             onClick={() => {
               disconnect();
-              toast('Spreadsheet disconnected');
+              toast('Firebase disconnected');
             }}
           >
             <Unplug size={14} />
@@ -168,106 +153,6 @@ function SheetTab({ onDone }: { onDone: () => void }) {
   );
 }
 
-/* ------------------------------ Upload tab -------------------------------- */
-function UploadTab({ onDone }: { onDone: () => void }) {
-  const [drag, setDrag] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const mode = useConfig((s) => s.mode);
-  const fileName = useTelemetry((s) => s.fileName);
-
-  const handle = useCallback(
-    async (file: File | undefined) => {
-      if (!file) return;
-      setErr(null);
-      setBusy(true);
-      try {
-        useTelemetry.getState().reset();
-        const result = await parseFile(file, fallbackTs);
-        useConfig.getState().setFileMode();
-        useTelemetry.getState().ingest(result, { fileName: file.name });
-        if (result.total === 0) {
-          setErr('The file contains no data rows.');
-        } else {
-          toast.success(`${file.name} loaded`, {
-            description: `${result.valid} valid · ${result.sos} SOS · ${result.corrupt} quarantined of ${result.total} rows`,
-          });
-          onDone();
-        }
-      } catch (e) {
-        setErr((e as Error).message);
-      } finally {
-        setBusy(false);
-      }
-    },
-    [onDone],
-  );
-
-  return (
-    <div className="space-y-3">
-      <div
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDrag(true);
-        }}
-        onDragLeave={() => setDrag(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setDrag(false);
-          void handle(e.dataTransfer.files?.[0]);
-        }}
-        onClick={() => inputRef.current?.click()}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && inputRef.current?.click()}
-        className={`flex cursor-pointer flex-col items-center justify-center rounded-panel border-2 border-dashed px-6 py-12 text-center transition-colors ${
-          drag ? 'border-forest bg-forest-tint' : 'border-line-strong bg-canvas/60 hover:border-forest/60 hover:bg-forest-tint/50'
-        }`}
-      >
-        <Upload size={22} className={drag ? 'text-forest' : 'text-ink-muted'} />
-        <p className="mt-3 text-[13.5px] font-semibold">{busy ? 'Parsing…' : 'Drop a spreadsheet here, or click to browse'}</p>
-        <p className="mt-1 text-[12px] text-ink-2">
-          <span className="num">.xlsx</span> · <span className="num">.xls</span> · <span className="num">.csv</span> — parsed locally, nothing is uploaded.
-        </p>
-        <input
-          ref={inputRef}
-          type="file"
-          accept=".xlsx,.xls,.csv,.tsv,.txt"
-          className="hidden"
-          onChange={(e) => {
-            void handle(e.target.files?.[0]);
-            e.target.value = '';
-          }}
-        />
-      </div>
-      {err && <p className="rounded-ctl border border-amber/40 bg-amber-tint px-3 py-2 text-[12.5px] font-medium text-amber-ink">{err}</p>}
-      {mode === 'file' && (
-        <div className="flex items-center justify-between rounded-ctl border border-line bg-canvas px-3 py-2">
-          <span className="text-[12.5px] text-ink-2">
-            Loaded: <span className="num font-semibold text-ink">{fileName}</span>
-          </span>
-          <button
-            className="btn h-7 text-[12px]"
-            onClick={() => {
-              useConfig.getState().disconnect();
-              useTelemetry.getState().reset();
-              toast('Loaded file cleared');
-            }}
-          >
-            Clear data
-          </button>
-        </div>
-      )}
-      <p className="text-[11.5px] leading-relaxed text-ink-muted">
-        Headers are matched automatically (ID/Device/Pendaki, Lat/Lintang, Lon/Bujur, MDPL/Elevasi, Suhu/Temp, Status/Kondisi, RSSI, SNR, Timestamp/Waktu). Raw
-        pipe-delimited LoRa payloads in a single column are detected too. Rows that fail validation are quarantined in System Log.
-      </p>
-    </div>
-  );
-}
-
-/* ------------------------------- Guide tab -------------------------------- */
 function CodeBlock({ title, code, lang }: { title: string; code: string; lang: string }) {
   const [copied, setCopied] = useState(false);
   return (
@@ -293,67 +178,76 @@ function CodeBlock({ title, code, lang }: { title: string; code: string; lang: s
           {copied ? 'Copied' : 'Copy'}
         </button>
       </div>
-      <pre className="scroll-thin num max-h-[220px] overflow-auto bg-surface p-3 text-[11px] leading-[1.55] text-ink">{code}</pre>
+      <pre className="scroll-thin num max-h-[250px] overflow-auto bg-surface p-3 text-[11px] leading-[1.55] text-ink">{code}</pre>
     </div>
   );
 }
 
 function GuideTab() {
   const steps = [
-    'Create a Google Sheet. Open Extensions › Apps Script and paste the script below (replace the default code).',
-    'Deploy › New deployment › Web app. Execute as “Me”, access “Anyone”. Copy the /exec URL.',
-    'Flash the ESP32 receiver to HTTP-POST each received LoRa string to that URL (snippet below).',
-    'Paste the same /exec URL into the Google Sheets tab here. The dashboard polls it as JSON.',
+    'Create a Firebase project and a Realtime Database. Copy its database URL from the database page.',
+    'Create a Firebase Web App and copy its config JSON. Paste the URL or config in the Firebase tab, or set the VITE_FIREBASE_* build variables.',
+    'Write each Basecamp fix to /hikers/{deviceId}. Updates stream into RAKSA immediately; set the Database root path if your data is nested.',
+    'Configure RTDB Security Rules for your deployment. Do not allow unauthenticated writes; public read access exposes live hiker locations.',
   ];
   return (
     <div className="space-y-4">
       <ol className="space-y-1.5">
-        {steps.map((s, i) => (
-          <li key={i} className="flex gap-2.5 text-[12.5px] leading-relaxed text-ink-2">
+        {steps.map((step, index) => (
+          <li key={step} className="flex gap-2.5 text-[12.5px] leading-relaxed text-ink-2">
             <span className="num mt-px flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border border-forest/30 bg-forest-tint text-[10.5px] font-bold text-forest">
-              {i + 1}
+              {index + 1}
             </span>
-            {s}
+            {step}
           </li>
         ))}
       </ol>
-      <CodeBlock title="Google Apps Script" lang="Code.gs" code={APPS_SCRIPT} />
-      <CodeBlock title="ESP32 HTTP POST" lang="Arduino C++" code={ESP32_SNIPPET} />
+      <div className="rounded-ctl border border-line bg-canvas p-3">
+        <div className="label mb-2">Recommended RTDB record</div>
+        <pre className="num whitespace-pre-wrap text-[11px] leading-[1.55] text-ink">{`/hikers/RAKSA_01
+{
+  "id": "RAKSA_01",
+  "lat": -7.482529,
+  "lon": 110.214327,
+  "mdpl": 370.8,
+  "suhu": 26.4,
+  "status": "SOS",
+  "rssi": -108,
+  "snr": 6.5,
+  "battery": 84,
+  "timestamp": 1764241200000
+}`}</pre>
+      </div>
+      <CodeBlock title="ESP32 HTTPS PUT" lang="Arduino C++" code={FIREBASE_ESP32_SNIPPET} />
       <p className="text-[11.5px] leading-relaxed text-ink-muted">
-        Post the raw LoRa string unmodified — corrupt packets are kept in the sheet and quarantined by the dashboard, which is how the Packet Success Rate is computed.
+        Structured JSON and pipe-delimited LoRa payload strings are both parsed. The listener watches child additions and updates under <span className="num">/hikers</span>; timestamps should be Unix epoch milliseconds.
       </p>
+      <div className="rounded-ctl border border-amber/30 bg-amber-tint px-3 py-2 text-[11.5px] leading-relaxed text-amber-ink">
+        Firebase Web config values are public identifiers, not access controls. Production rules should authenticate writers and limit read access; public reads reveal location data.
+      </div>
     </div>
   );
 }
 
-/* --------------------------------- Modal ---------------------------------- */
 export function ConnectModal() {
-  const open = useUi((s) => s.connectOpen);
-  const tab = useUi((s) => s.connectTab);
-  const close = useUi((s) => s.closeConnect);
-  const openConnect = useUi((s) => s.openConnect);
+  const open = useUi((state) => state.connectOpen);
+  const tab = useUi((state) => state.connectTab);
+  const close = useUi((state) => state.closeConnect);
+  const openConnect = useUi((state) => state.openConnect);
 
   return (
-    <Modal
-      open={open}
-      onClose={close}
-      width={660}
-      title="Spreadsheet Connection"
-      subtitle="RAKSA reads telemetry from the spreadsheet your Basecamp ESP32 writes to."
-    >
+    <Modal open={open} onClose={close} width={660} title="Firebase Connection" subtitle="RAKSA streams Basecamp telemetry directly from Firebase Realtime Database.">
       <Segmented<ConnectTab>
         value={tab}
-        onChange={(t) => openConnect(t)}
+        onChange={(nextTab) => openConnect(nextTab)}
         ariaLabel="Connection method"
         className="mb-4"
         options={[
-          { value: 'sheet', label: 'Google Sheets Live Sync' },
-          { value: 'upload', label: 'Upload Spreadsheet' },
+          { value: 'firebase', label: 'Firebase RTDB' },
           { value: 'guide', label: 'ESP32 Setup Guide' },
         ]}
       />
-      {open && tab === 'sheet' && <SheetTab onDone={close} />}
-      {open && tab === 'upload' && <UploadTab onDone={close} />}
+      {open && tab === 'firebase' && <FirebaseTab onDone={close} />}
       {open && tab === 'guide' && <GuideTab />}
     </Modal>
   );

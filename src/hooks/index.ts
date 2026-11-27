@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useConfig } from '../store/config';
-import { useTelemetry, fallbackTs } from '../store/telemetry';
+import { useTelemetry } from '../store/telemetry';
 import { useUi } from '../store/ui';
 import { deriveHikers } from '../lib/format';
-import { fetchSheet, resolveSheetUrl } from '../lib/sheets';
-import { SHEET_QUERY_KEY } from '../lib/queryClient';
+import { disposeFirebase, getEnvironmentFirebaseConfig } from '../lib/firebase';
+import { subscribeFirebaseStream } from '../lib/firebaseStream';
 import { startAlarm, stopAlarm, unlockAudio, isAudioRunning } from '../lib/audio';
 import type { Hiker } from '../types';
 
@@ -32,51 +31,47 @@ export function useUnackedSos(hikers: Hiker[]): Hiker[] {
   return useMemo(() => hikers.filter((h) => h.status === 'SOS' && h.sosKey && !acks[h.sosKey]), [hikers, acks]);
 }
 
-/** TanStack Query polling engine for Google Sheets / CSV / Apps Script endpoints. */
-export function useSheetSync() {
-  const mode = useConfig((s) => s.mode);
-  const sheetUrl = useConfig((s) => s.sheetUrl);
-  const intervalMs = useConfig((s) => s.intervalMs);
-  const resolved = useMemo(() => resolveSheetUrl(sheetUrl), [sheetUrl]);
-  const enabled = mode === 'sheet' && !!resolved;
-
-  const q = useQuery({
-    queryKey: [...SHEET_QUERY_KEY, resolved?.url ?? null],
-    enabled,
-    queryFn: ({ signal }) => fetchSheet(resolved!.url, fallbackTs, signal),
-    refetchInterval: intervalMs > 0 ? intervalMs : false,
-    refetchIntervalInBackground: true,
-    retry: 3,
-    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
-    staleTime: 0,
-    gcTime: 0,
-    structuralSharing: false,
-  });
-
-  const { data, dataUpdatedAt, error, isFetching } = q;
-  const ingest = useTelemetry((s) => s.ingest);
-  const setSyncing = useTelemetry((s) => s.setSyncing);
-  const setError = useTelemetry((s) => s.setError);
+/** Keeps one RTDB subscription active for the selected runtime or environment config. */
+export function useFirebaseStream() {
+  const runtimeConfig = useConfig((s) => s.firebaseConfig);
+  const databaseRoot = useConfig((s) => s.databaseRoot);
+  const connectionDisabled = useConfig((s) => s.connectionDisabled);
+  const environmentConfig = useMemo(() => getEnvironmentFirebaseConfig(), []);
+  const config = runtimeConfig ?? environmentConfig;
 
   useEffect(() => {
-    if (enabled && data) ingest(data.result, { latencyMs: data.latencyMs });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataUpdatedAt, enabled]);
+    if (!config || connectionDisabled) {
+      disposeFirebase();
+      useTelemetry.getState().reset();
+      return;
+    }
 
-  useEffect(() => {
-    setSyncing(enabled && isFetching);
-  }, [enabled, isFetching, setSyncing]);
-
-  useEffect(() => {
-    setError(enabled && error ? (error as Error).message : undefined);
-  }, [enabled, error, setError]);
-
-  // switching away from a live sheet clears its data
-  const prevMode = useRef(mode);
-  useEffect(() => {
-    if (prevMode.current === 'sheet' && mode === 'none') useTelemetry.getState().reset();
-    prevMode.current = mode;
-  }, [mode]);
+    const telemetry = useTelemetry.getState();
+    telemetry.reset();
+    telemetry.setConnectionState('connecting');
+    let unsubscribe: (() => void) | undefined;
+    try {
+      unsubscribe = subscribeFirebaseStream(config, databaseRoot, {
+        onConnection: (connected) => {
+          useTelemetry.getState().setConnectionState(connected ? 'connected' : 'disconnected');
+          if (connected) useTelemetry.getState().setError(undefined);
+        },
+        onPacket: (entry) => useTelemetry.getState().ingestEvent(entry),
+        onError: (error) => {
+          useTelemetry.getState().setConnectionState('error');
+          useTelemetry.getState().setError(error.message);
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Firebase initialization failed';
+      useTelemetry.getState().setConnectionState('error');
+      useTelemetry.getState().setError(message);
+    }
+    return () => {
+      unsubscribe?.();
+      disposeFirebase();
+    };
+  }, [config, databaseRoot, connectionDisabled]);
 }
 
 /** Plays the siren while an unacknowledged SOS exists and audio is not muted. */
@@ -135,17 +130,6 @@ export function useHotkeys() {
         case '3':
           ui.toggle3d();
           break;
-        case 'r':
-        case 'R': {
-          const cfg = useConfig.getState();
-          if (cfg.mode === 'sheet') {
-            void import('../lib/queryClient').then((m) => m.syncNow());
-            toast('Re-syncing spreadsheet…');
-          } else {
-            toast('No live spreadsheet connected', { description: 'Connect a Google Sheet to enable sync.' });
-          }
-          break;
-        }
         case 'm':
         case 'M': {
           const cfg = useConfig.getState();

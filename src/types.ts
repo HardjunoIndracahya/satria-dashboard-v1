@@ -17,9 +17,9 @@ export interface Packet {
   battery?: number;
   /** epoch ms */
   ts: number;
-  /** 'sheet' = timestamp carried in the data; 'ingest' = first time this row was seen by the dashboard */
-  tsSource: 'sheet' | 'ingest';
-  /** 1-based spreadsheet row number */
+  /** 'firebase' = timestamp carried in the data; 'ingest' = time received by the dashboard */
+  tsSource: 'firebase' | 'ingest';
+  /** Stream sequence number */
   row: number;
 }
 
@@ -31,17 +31,6 @@ export interface LogEntry {
   kind: LogKind;
   reason?: string;
   packet?: Packet;
-}
-
-export interface ParseResult {
-  entries: LogEntry[];
-  headerRow: number | null;
-  /** Human readable column mapping, e.g. "ID ← Device" */
-  mapping: string[];
-  total: number;
-  valid: number;
-  sos: number;
-  corrupt: number;
 }
 
 export type NodeType = 'basecamp' | 'pos' | 'relay';
@@ -80,4 +69,3 @@ export interface Hiker {
 export type BasemapId = 'topo' | 'satellite' | 'osm';
 export type AppView = 'dashboard' | 'nodes' | 'log';
 export type SidebarFilter = 'all' | 'sos' | 'normal' | 'offline';
-export type SourceMode = 'none' | 'sheet' | 'file';

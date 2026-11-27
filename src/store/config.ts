@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Pairing, RelayNode, SourceMode } from '../types';
+import type { Pairing, RelayNode } from '../types';
+import type { FirebaseWebConfig } from '../lib/firebase';
 
 export interface AckRecord {
   id: string;
@@ -8,20 +9,17 @@ export interface AckRecord {
 }
 
 interface ConfigState {
-  mode: SourceMode;
-  sheetUrl: string;
-  /** 0 = manual */
-  intervalMs: number;
+  firebaseConfig: FirebaseWebConfig | null;
+  databaseRoot: string;
+  connectionDisabled: boolean;
   offlineAfterMin: number;
   nodes: RelayNode[];
   pairings: Record<string, Pairing>;
   acks: Record<string, AckRecord>;
   muted: boolean;
 
-  connectSheet: (url: string, intervalMs: number) => void;
-  setFileMode: () => void;
+  connectFirebase: (config: FirebaseWebConfig, root: string) => void;
   disconnect: () => void;
-  setInterval: (ms: number) => void;
   setOfflineAfter: (min: number) => void;
   upsertNode: (n: RelayNode) => void;
   removeNode: (id: string) => void;
@@ -34,19 +32,17 @@ interface ConfigState {
 export const useConfig = create<ConfigState>()(
   persist(
     (set) => ({
-      mode: 'none',
-      sheetUrl: '',
-      intervalMs: 10_000,
+      firebaseConfig: null,
+      databaseRoot: '/',
+      connectionDisabled: false,
       offlineAfterMin: 5,
       nodes: [],
       pairings: {},
       acks: {},
       muted: false,
 
-      connectSheet: (url, intervalMs) => set({ mode: 'sheet', sheetUrl: url, intervalMs }),
-      setFileMode: () => set({ mode: 'file' }),
-      disconnect: () => set({ mode: 'none' }),
-      setInterval: (ms) => set({ intervalMs: ms }),
+      connectFirebase: (firebaseConfig, databaseRoot) => set({ firebaseConfig, databaseRoot, connectionDisabled: false }),
+      disconnect: () => set({ connectionDisabled: true }),
       setOfflineAfter: (min) => set({ offlineAfterMin: Math.max(1, Math.min(240, min)) }),
       upsertNode: (n) =>
         set((s) => ({
@@ -68,10 +64,9 @@ export const useConfig = create<ConfigState>()(
       name: 'raksa.config.v1',
       version: 1,
       partialize: (s) => ({
-        // uploaded files are in-memory only, so never restore 'file' mode
-        mode: s.mode === 'sheet' ? 'sheet' : 'none',
-        sheetUrl: s.sheetUrl,
-        intervalMs: s.intervalMs,
+        firebaseConfig: s.firebaseConfig,
+        databaseRoot: s.databaseRoot,
+        connectionDisabled: s.connectionDisabled,
         offlineAfterMin: s.offlineAfterMin,
         nodes: s.nodes,
         pairings: s.pairings,

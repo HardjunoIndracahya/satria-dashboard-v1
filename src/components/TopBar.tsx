@@ -1,11 +1,12 @@
 import { useId } from 'react';
 import { motion } from 'framer-motion';
-import { FileSpreadsheet, Volume2, VolumeX } from 'lucide-react';
+import { Database, Volume2, VolumeX } from 'lucide-react';
 import { Logo } from './ui';
 import { useConfig } from '../store/config';
 import { useTelemetry } from '../store/telemetry';
 import { useUi } from '../store/ui';
 import { useNow } from '../hooks';
+import { getEnvironmentFirebaseConfig } from '../lib/firebase';
 import { formatClock } from '../lib/format';
 import type { AppView } from '../types';
 
@@ -16,44 +17,34 @@ const TABS: { id: AppView; label: string }[] = [
 ];
 
 function SourcePill() {
-  const mode = useConfig((s) => s.mode);
-  const intervalMs = useConfig((s) => s.intervalMs);
-  const syncing = useTelemetry((s) => s.syncing);
-  const error = useTelemetry((s) => s.error);
-  const lastSyncAt = useTelemetry((s) => s.lastSyncAt);
+  const runtimeConfig = useConfig((s) => s.firebaseConfig);
+  const disabled = useConfig((s) => s.connectionDisabled);
+  const connectionState = useTelemetry((s) => s.connectionState);
   const pulse = useTelemetry((s) => s.pulse);
-  const fileName = useTelemetry((s) => s.fileName);
   const openConnect = useUi((s) => s.openConnect);
+  const configured = !disabled && Boolean(runtimeConfig || getEnvironmentFirebaseConfig());
 
   let dot = 'bg-slate-400';
-  let text = 'Spreadsheet: Not Connected';
-  if (mode === 'sheet') {
-    if (error && !syncing) {
-      dot = 'bg-amber';
-      text = 'Sync Error • Retrying';
-    } else if (syncing && !lastSyncAt) {
-      dot = 'bg-amber';
-      text = 'Syncing...';
-    } else if (syncing) {
-      dot = 'bg-amber';
-      text = 'Syncing...';
-    } else {
-      dot = 'bg-forest';
-      text = `Live Sync • ${intervalMs > 0 ? `${intervalMs / 1000}s` : 'Manual'}`;
-    }
-  } else if (mode === 'file') {
+  let text = 'Firebase: Not Connected';
+  if (configured && connectionState === 'connected') {
     dot = 'bg-forest';
-    text = `File • ${fileName ?? 'loaded'}`;
+    text = 'Firebase: Connected';
+  } else if (configured && connectionState === 'error') {
+    dot = 'bg-amber';
+    text = 'Firebase: Error';
+  } else if (configured && connectionState === 'connecting') {
+    dot = 'bg-amber';
+    text = 'Firebase: Connecting';
   }
 
   return (
     <button
       onClick={() => openConnect()}
       className="group flex h-8 max-w-[260px] items-center gap-2 rounded-full border border-line bg-canvas px-3 text-[12px] font-semibold text-ink-2 transition-colors hover:border-line-strong hover:bg-surface"
-      title="Open spreadsheet connection"
+      title="Open Firebase connection"
     >
       <span className="relative flex h-2 w-2 shrink-0">
-        {mode !== 'none' && pulse > 0 && <span key={pulse} className="heartbeat-ring" />}
+        {connectionState === 'connected' && pulse > 0 && <span key={pulse} className="heartbeat-ring" />}
         <span className={`relative h-2 w-2 rounded-full ${dot}`} />
       </span>
       <span className="truncate">{text}</span>
@@ -131,8 +122,8 @@ export function TopBar({ sosActive }: { sosActive: boolean }) {
         )}
 
         <button className="btn btn-primary" onClick={() => openConnect()}>
-          <FileSpreadsheet size={15} />
-          Hubungkan Spreadsheet
+          <Database size={15} />
+          Connect Firebase
         </button>
       </div>
     </header>
