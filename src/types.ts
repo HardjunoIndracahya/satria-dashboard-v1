@@ -71,5 +71,54 @@ export interface Hiker {
 }
 
 export type BasemapId = 'topo' | 'satellite' | 'osm';
-export type AppView = 'overview' | 'dashboard' | 'hikers' | 'analytics' | 'nodes' | 'log';
+export type AppView = 'overview' | 'dashboard' | 'emergencies' | 'hikers' | 'analytics' | 'nodes' | 'log';
 export type SidebarFilter = 'all' | 'live' | 'delayed' | 'offline' | 'sos';
+
+export type SosIncidentState = 'ACTIVE' | 'ACKNOWLEDGED' | 'RESOLVED';
+
+export interface SosIncident {
+  device_id: string;
+  incident_id: string;
+  state: 'ACTIVE' | 'ACKNOWLEDGED';
+  triggered_at: number;
+  last_sos_at: number;
+  latitude: number | null;
+  longitude: number | null;
+  altitude: number | null;
+  temperature: number | null;
+  rssi?: number | null;
+  snr?: number | null;
+  acknowledged_at: number | null;
+  acknowledged_by: string | null;
+  acknowledged_by_uid?: string | null;
+  resolved_at: null;
+  resolved_by: null;
+  resolution_note: null;
+}
+
+export interface SosHistoryIncident {
+  device_id: string;
+  incident_id: string;
+  state: 'RESOLVED';
+  triggered_at: number;
+  last_sos_at?: number | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  altitude?: number | null;
+  temperature?: number | null;
+  rssi?: number | null;
+  snr?: number | null;
+  acknowledged_at?: number | null;
+  acknowledged_by?: string | null;
+  acknowledged_by_uid?: string | null;
+  resolved_at: number;
+  resolved_by: string;
+  resolved_by_uid?: string | null;
+  resolution_note?: string | null;
+}
+
+export interface OperatorUser {
+  uid: string;
+  email: string;
+  displayName: string;
+}

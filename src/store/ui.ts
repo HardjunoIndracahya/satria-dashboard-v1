@@ -17,6 +17,10 @@ interface UiState {
   sidebarOpen: boolean;
   scrubIndex: number | null;
   pairingId: string | null;
+  /** Device ID currently open in the Mark as Rescued confirmation modal. */
+  rescueTargetId: string | null;
+  /** Operator authentication modal visibility. */
+  authModalOpen: boolean;
 
   setView: (v: AppView) => void;
   select: (id: string | null) => void;
@@ -33,6 +37,10 @@ interface UiState {
   setScrub: (i: number | null) => void;
   openPairing: (id: string) => void;
   closePairing: () => void;
+  openRescueModal: (deviceId: string) => void;
+  closeRescueModal: () => void;
+  openAuthModal: () => void;
+  closeAuthModal: () => void;
   /** Esc behaviour: closes the top-most layer. Returns true if something was closed. */
   dismiss: () => boolean;
 }
@@ -52,6 +60,8 @@ export const useUi = create<UiState>((set, get) => ({
   sidebarOpen: typeof window === 'undefined' || window.innerWidth >= 768,
   scrubIndex: null,
   pairingId: null,
+  rescueTargetId: null,
+  authModalOpen: false,
 
   setView: (view) => set({ view }),
   select: (selectedId) => set({ selectedId, scrubIndex: null }),
@@ -68,8 +78,20 @@ export const useUi = create<UiState>((set, get) => ({
   setScrub: (scrubIndex) => set({ scrubIndex }),
   openPairing: (pairingId) => set({ pairingId }),
   closePairing: () => set({ pairingId: null }),
+  openRescueModal: (rescueTargetId) => set({ rescueTargetId }),
+  closeRescueModal: () => set({ rescueTargetId: null }),
+  openAuthModal: () => set({ authModalOpen: true }),
+  closeAuthModal: () => set({ authModalOpen: false }),
   dismiss: () => {
     const s = get();
+    if (s.authModalOpen) {
+      set({ authModalOpen: false });
+      return true;
+    }
+    if (s.rescueTargetId) {
+      set({ rescueTargetId: null });
+      return true;
+    }
     if (s.pairingId) {
       set({ pairingId: null });
       return true;
@@ -85,5 +107,3 @@ export const useUi = create<UiState>((set, get) => ({
     return false;
   },
 }));
-
-

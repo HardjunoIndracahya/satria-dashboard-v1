@@ -1,44 +1,63 @@
 import { onValue, ref } from 'firebase/database';
 import type { FirebaseWebConfig } from './firebase';
-import { disposeFirebase, getFirebaseDatabase, manageFirebaseListener, normalizeDatabaseRoot } from './firebase';
+import {
+  disposeFirebase,
+  getFirebaseDatabase,
+  manageFirebaseListener,
+  normalizeDatabaseRoot,
+  SOS_ACTIVE_ROOT,
+  SOS_HISTORY_ROOT,
+} from './firebase';
 import { parseFirebasePacket } from './parser';
-import type { LogEntry } from '../types';
+import { parseSosActiveMap, parseSosHistoryList } from './sosService';
+import type { LogEntry, SosHistoryIncident, SosIncident } from '../types';
 
 export interface FirebaseStreamHandlers {
   onConnection: (connected: boolean) => void;
   onPacket: (entry: LogEntry) => void;
-  /** Called after every snapshot with the number of device nodes found (0 = empty node). */
+  /** Called after every telemetry snapshot with the number of device nodes found (0 = empty node). */
   onDeviceCount?: (count: number) => void;
+  onSosActive?: (active: Record<string, SosIncident>) => void;
+  onSosHistory?: (history: SosHistoryIncident[]) => void;
+  onSosError?: (error: Error) => void;
   onError: (error: Error) => void;
 }
 
-function friendlyError(error: Error & { code?: string }): Error {
+function friendlyError(error: Error & { code?: string }, nodeName: string): Error {
   if (error.code === 'PERMISSION_DENIED' || /permission[_ ]denied/i.test(error.message)) {
     return new Error(
-      'Permission denied by Firebase Realtime Database rules. Allow read access to the "pendaki" node (".read": true) or sign in with Firebase Auth. Rules were not modified by the dashboard.',
+      `Permission denied by Firebase Realtime Database rules on "${nodeName}". Check your Security Rules or sign in as an authorized Basecamp operator.`,
     );
   }
   return error;
 }
 
 /**
- * Streams the whole `pendaki/` node with ONE onValue listener. Every child is a hiker device
- * (any device ID is accepted). A packet is emitted only for devices whose data actually changed.
+ * Registers exactly ONE `onValue` listener each for:
+ *  - `.info/connected`
+ *  - `pendaki/` (current hiker telemetry)
+ *  - `sos_active/` (persistent unresolved SOS incidents)
+ *  - `sos_history/` (resolved SOS incident archive)
  */
 export function subscribeFirebaseStream(config: FirebaseWebConfig, rootPath: string, handlers: FirebaseStreamHandlers): () => void {
   const database = getFirebaseDatabase(config);
   const root = normalizeDatabaseRoot(rootPath);
+  const sosActivePath = normalizeDatabaseRoot(SOS_ACTIVE_ROOT);
+  const sosHistoryPath = normalizeDatabaseRoot(SOS_HISTORY_ROOT);
   let sequence = 0;
   const lastSeen = new Map<string, string>();
   const disposers: Array<() => void> = [];
-  const fail = (error: Error) => handlers.onError(friendlyError(error));
 
   try {
     const connectedRef = ref(database, '.info/connected');
     disposers.push(
       manageFirebaseListener(
         connectedRef,
-        onValue(connectedRef, (snapshot) => handlers.onConnection(snapshot.val() === true), fail),
+        onValue(
+          connectedRef,
+          (snapshot) => handlers.onConnection(snapshot.val() === true),
+          (error) => handlers.onError(friendlyError(error, '.info/connected')),
+        ),
       ),
     );
 
@@ -71,10 +90,42 @@ export function subscribeFirebaseStream(config: FirebaseWebConfig, rootPath: str
             });
             handlers.onDeviceCount?.(count);
           },
-          fail,
+          (error) => handlers.onError(friendlyError(error, root || '/')),
         ),
       ),
     );
+
+    if (handlers.onSosActive) {
+      const sosActiveRef = ref(database, sosActivePath);
+      disposers.push(
+        manageFirebaseListener(
+          sosActiveRef,
+          onValue(
+            sosActiveRef,
+            (snapshot) => {
+              handlers.onSosActive?.(parseSosActiveMap(snapshot.val()));
+            },
+            (error) => handlers.onSosError?.(friendlyError(error, sosActivePath)),
+          ),
+        ),
+      );
+    }
+
+    if (handlers.onSosHistory) {
+      const sosHistoryRef = ref(database, sosHistoryPath);
+      disposers.push(
+        manageFirebaseListener(
+          sosHistoryRef,
+          onValue(
+            sosHistoryRef,
+            (snapshot) => {
+              handlers.onSosHistory?.(parseSosHistoryList(snapshot.val()));
+            },
+            (error) => handlers.onSosError?.(friendlyError(error, sosHistoryPath)),
+          ),
+        ),
+      );
+    }
 
     return () => {
       for (const dispose of disposers) dispose();

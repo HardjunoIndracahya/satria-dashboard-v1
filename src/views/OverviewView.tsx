@@ -1,15 +1,16 @@
-import { AlertTriangle, CheckCircle2, Database, Radio, ShieldAlert, Signal, WifiOff, Clock } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock, Database, ShieldAlert, Signal, WifiOff } from 'lucide-react';
 import { useMemo } from 'react';
 import { HikerCard } from '../components/HikerCard';
-import { LinkPill, StatusPill } from '../components/ui';
+import { IncidentStatePill, StatusPill } from '../components/ui';
 import { useConfig } from '../store/config';
+import { useSos } from '../store/sos';
 import { useTelemetry } from '../store/telemetry';
 import { useUi } from '../store/ui';
 import { useNow } from '../hooks';
 import { DATABASE_ROOT, FIREBASE_STATUS, LIVE_WITHIN_MS, OFFLINE_AFTER_MS } from '../lib/firebase';
 import { filterCounts } from '../lib/filter';
-import { formatAgo, formatClock } from '../lib/format';
-import type { Hiker, SidebarFilter } from '../types';
+import { formatAgo, formatClock, formatDuration } from '../lib/format';
+import type { Hiker, SidebarFilter, SosIncident } from '../types';
 
 function Kpi({ label, value, tone, icon, onClick }: { label: string; value: number; tone: string; icon: React.ReactNode; onClick: () => void }) {
   return (
@@ -32,18 +33,18 @@ function Row({ k, children }: { k: string; children: React.ReactNode }) {
   );
 }
 
-export function OverviewView({ hikers }: { hikers: Hiker[] }) {
+export function OverviewView({ hikers, incidents }: { hikers: Hiker[]; incidents: SosIncident[] }) {
   const setView = useUi((s) => s.setView);
   const setFilter = useUi((s) => s.setFilter);
   const focusHiker = useUi((s) => s.focusHiker);
   const selectedId = useUi((s) => s.selectedId);
   const openPairing = useUi((s) => s.openPairing);
   const pairings = useConfig((s) => s.pairings);
-  const acks = useConfig((s) => s.acks);
+  const activeSos = useSos((s) => s.active);
+  const historyCount = useSos((s) => s.history.length);
   const { connectionState, error, lastSyncAt, total, valid, corrupt, emptyRoot } = useTelemetry();
   const now = useNow(1000);
-  const counts = useMemo(() => filterCounts(hikers), [hikers]);
-  const sosList = hikers.filter((h) => h.status === 'SOS');
+  const counts = useMemo(() => filterCounts(hikers, activeSos), [hikers, activeSos]);
 
   const go = (f: SidebarFilter) => {
     setFilter(f);
@@ -63,10 +64,16 @@ export function OverviewView({ hikers }: { hikers: Hiker[] }) {
           <Kpi label="Active (live)" value={counts.live} tone="bg-forest-tint text-forest" icon={<CheckCircle2 size={18} />} onClick={() => go('live')} />
           <Kpi label="Delayed" value={counts.delayed} tone="bg-amber-tint text-amber-ink" icon={<Clock size={18} />} onClick={() => go('delayed')} />
           <Kpi label="Offline" value={counts.offline} tone="bg-slate2-tint text-ink-2" icon={<WifiOff size={18} />} onClick={() => go('offline')} />
-          <Kpi label="SOS" value={counts.sos} tone="bg-crimson-tint text-crimson" icon={<ShieldAlert size={18} />} onClick={() => go('sos')} />
+          <Kpi
+            label="Unresolved SOS"
+            value={incidents.length}
+            tone={incidents.length > 0 ? 'bg-crimson text-white' : 'bg-crimson-tint text-crimson'}
+            icon={<ShieldAlert size={18} />}
+            onClick={() => setView('emergencies')}
+          />
         </div>
 
-        <div className="grid gap-3 lg:grid-cols-[1fr_340px]">
+        <div className="grid gap-3 lg:grid-cols-[1fr_360px]">
           <section className="panel p-3" aria-label="Hikers">
             <div className="mb-2.5 flex items-center justify-between">
               <h2 className="text-[14px] font-bold">Hiker status</h2>
@@ -85,8 +92,8 @@ export function OverviewView({ hikers }: { hikers: Hiker[] }) {
                     <HikerCard
                       hiker={h}
                       pairing={pairings[h.id]}
+                      sosIncident={activeSos[h.id]}
                       selected={selectedId === h.id}
-                      acked={!!h.sosKey && !!acks[h.sosKey]}
                       onSelect={() => focusHiker(h.id)}
                       onEdit={() => openPairing(h.id)}
                     />
@@ -97,6 +104,56 @@ export function OverviewView({ hikers }: { hikers: Hiker[] }) {
           </section>
 
           <div className="flex flex-col gap-3">
+            <section className={`panel p-3 ${incidents.length > 0 ? 'border-crimson/50' : ''}`} aria-label="Persistent Emergencies">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <h2 className="flex items-center gap-2 text-[14px] font-bold">
+                  <ShieldAlert size={15} className={incidents.length > 0 ? 'text-crimson' : 'text-ink-2'} />
+                  Active SOS Incidents
+                </h2>
+                <button className="btn h-7 px-2 text-[11.5px]" onClick={() => setView('emergencies')}>
+                  Manage ({incidents.length})
+                </button>
+              </div>
+              {incidents.length === 0 ? (
+                <p className="py-2 text-[12.5px] text-ink-2">
+                  No unresolved SOS incidents. <span className="num text-ink-muted">({historyCount} in history)</span>
+                </p>
+              ) : (
+                <ul className="space-y-2">
+                  {incidents.map((inc) => {
+                    const hiker = hikers.find((h) => h.id === inc.device_id);
+                    return (
+                      <li key={inc.incident_id}>
+                        <button
+                          onClick={() => setView('emergencies')}
+                          className={`w-full rounded-ctl border p-2.5 text-left transition-colors ${
+                            inc.state === 'ACTIVE'
+                              ? 'border-crimson bg-crimson-tint hover:border-crimson'
+                              : 'border-amber/60 bg-amber-tint hover:border-amber'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="num text-[13px] font-bold">{inc.device_id}</span>
+                            <IncidentStatePill state={inc.state} />
+                          </div>
+                          <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-ink-2">
+                            <span className="num truncate">{inc.incident_id}</span>
+                            <span className="num shrink-0 font-semibold text-crimson">{formatDuration(now - inc.triggered_at)}</span>
+                          </div>
+                          {hiker && (
+                            <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-ink-2">
+                              <span>Telemetry:</span>
+                              <StatusPill status={hiker.status} />
+                            </div>
+                          )}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </section>
+
             <section className="panel p-3" aria-label="System status">
               <h2 className="mb-1.5 flex items-center gap-2 text-[14px] font-bold">
                 <Database size={15} /> System status
@@ -104,7 +161,7 @@ export function OverviewView({ hikers }: { hikers: Hiker[] }) {
               <Row k="Firebase">
                 <span className={`font-semibold ${connTone}`}>{connLabel}</span>
               </Row>
-              <Row k="Watching">/{DATABASE_ROOT}</Row>
+              <Row k="Watching">/{DATABASE_ROOT}, /sos_active, /sos_history</Row>
               <Row k="Last data">{lastSyncAt ? `${formatClock(lastSyncAt)} (${formatAgo(now - lastSyncAt)})` : '—'}</Row>
               <Row k="Packets valid / total">{valid} / {total}</Row>
               <Row k="Quarantined">{corrupt}</Row>
@@ -117,32 +174,6 @@ export function OverviewView({ hikers }: { hikers: Hiker[] }) {
                 </p>
               )}
               <p className="mt-2 text-[11px] text-ink-muted">Connection is automatic and configured only in firebase-config.js.</p>
-            </section>
-
-            <section className="panel p-3" aria-label="Emergencies">
-              <h2 className="mb-1.5 flex items-center gap-2 text-[14px] font-bold">
-                <Radio size={15} /> Emergencies
-              </h2>
-              {sosList.length === 0 ? (
-                <p className="py-3 text-[12.5px] text-ink-2">No hiker is reporting SOS.</p>
-              ) : (
-                <ul className="space-y-1.5">
-                  {sosList.map((h) => (
-                    <li key={h.id}>
-                      <button
-                        onClick={() => focusHiker(h.id)}
-                        className="flex w-full items-center justify-between gap-2 rounded-ctl border border-crimson/30 bg-crimson-tint px-2.5 py-2 text-left"
-                      >
-                        <span className="num text-[13px] font-bold">{h.id}</span>
-                        <span className="flex items-center gap-1.5">
-                          <LinkPill link={h.link} />
-                          <StatusPill status={h.status} />
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
             </section>
           </div>
         </div>

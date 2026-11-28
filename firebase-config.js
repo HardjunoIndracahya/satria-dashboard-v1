@@ -29,6 +29,10 @@ export const firebaseConfig = {
 export const dashboardSettings = {
   /** Realtime Database node whose children are hiker devices: pendaki/<DEVICE_ID> */
   databaseRoot: 'pendaki',
+  /** Persistent unresolved SOS incidents node: sos_active/<DEVICE_ID> */
+  sosActiveRoot: 'sos_active',
+  /** Persistent resolved SOS history node: sos_history/<DEVICE_ID>/<INCIDENT_ID> */
+  sosHistoryRoot: 'sos_history',
   /** age of `updated_at` <= this → LIVE */
   liveWithinSec: 60,
   /** LIVE < age <= this → DELAYED; older → OFFLINE */

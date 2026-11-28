@@ -1,93 +1,63 @@
 # RAKSA — Basecamp & SAR Telemetry Dashboard
 
-Precision outdoor GIS dashboard for mountain Basecamp / SAR teams tracking hikers carrying ESP32 + LoRa SX1278 (433 MHz) + GPS devices. Telemetry streams directly from Firebase Realtime Database (RTDB). **No demo data is bundled.**
+Precision outdoor GIS dashboard for mountain Basecamp / SAR teams tracking hikers carrying ESP32 + LoRa SX1278 (433 MHz) + GPS devices. Telemetry and persistent SOS emergencies stream directly from Firebase Realtime Database (RTDB). **No demo data is bundled.**
 
-## Run
+## Quick Start
 
 ```bash
 npm install
-npm run dev
+npm run dev      # On Windows PowerShell if scripts are blocked: npm.cmd run dev
 npm run build
 npm run typecheck
 ```
 
-## Stack
+## Firebase Configuration (`firebase-config.js`)
 
-Vite · React · TypeScript · Tailwind CSS · MapLibre GL + `react-map-gl/maplibre` · Firebase modular SDK · Zustand (`persist`) · Recharts · Sonner.
+The dashboard connects automatically on load using [`firebase-config.js`](firebase-config.js). There is no manual Connect button.
 
-## Firebase connection
+1. Open Firebase Console → **Project settings → General → Your apps** (Web app) and copy `apiKey`, `authDomain`, `databaseURL`, `projectId`, `storageBucket`, `messagingSenderId`, and `appId` into `firebase-config.js`.
+2. In Firebase Console → **Authentication → Sign-in method**, enable **Email/Password** and create:
+   - At least one **Basecamp Operator** account (used to sign in on the dashboard to Acknowledge & Mark as Rescued).
+   - One dedicated **Basecamp Receiver** account (used by the ESP32 firmware).
+3. In Firebase Console → **Realtime Database → Data**, register the authorized UIDs:
+   ```json
+   {
+     "operators": {
+       "<OPERATOR_UID>": true
+     },
+     "basecamp_devices": {
+       "<BASECAMP_RECEIVER_UID>": true
+     }
+   }
+   ```
+4. Deploy the security rules from [`database.rules.json`](database.rules.json) in Firebase Console → **Realtime Database → Rules**.
 
-The dashboard connects using either:
+> **Security note:** Never expose Firebase service-account keys in frontend code, and do not leave `.write: true` publicly open in production. Only authenticated UIDs listed under `/operators` can acknowledge or resolve SOS incidents, and `/sos_history` is append-only.
 
-* **Build-time environment variables** for Vercel/Netlify: `VITE_FIREBASE_DATABASE_URL`, `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_PROJECT_ID`, and `VITE_FIREBASE_APP_ID`. All four are required for automatic connection on boot.
-* **Runtime configuration** from the top-bar connection modal. Paste a Realtime Database URL or Firebase Web App config JSON and set the database root path (default `/`). The selected config is persisted in browser localStorage and can be changed without redeploying.
+## Firebase Database Structure
 
-Runtime config takes precedence over environment config. Disconnect disables the active connection, including environment auto-connect, until a project is connected again.
+- `pendaki/{device_id}` — latest live hiker telemetry (`device_id`, `latitude`, `longitude`, `altitude`, `temperature`, `status`, `rssi`, `snr`, `updated_at`).
+- `sos_active/{device_id}` — persistent unresolved SOS incidents (`ACTIVE` or `ACKNOWLEDGED`). Never automatically cleared when `pendaki/{device_id}/status` changes back to `NORMAL`.
+- `sos_history/{device_id}/{incident_id}` — permanently archived `RESOLVED` incidents with `resolved_at`, `resolved_by`, `resolved_by_uid`, and `resolution_note`.
 
-The browser listens to Firebase's `.info/connected` sentinel for connection state and streams `child_added` and `child_changed` events from `<root>/hikers`. Each hiker record is updated by the Basecamp with HTTP PUT:
+## ESP32 Basecamp Receiver Firmware
 
-```json
-{
-  "id": "RAKSA_01",
-  "lat": -7.482529,
-  "lon": 110.214327,
-  "mdpl": 370.8,
-  "suhu": 26.4,
-  "status": "SOS",
-  "rssi": -108,
-  "snr": 6.5,
-  "battery": 84,
-  "timestamp": 1764241200000
-}
-```
+See [`firmware/esp32_basecamp_receiver/esp32_basecamp_receiver.ino`](firmware/esp32_basecamp_receiver/esp32_basecamp_receiver.ino):
+- Receives LoRa packets (`RAKSA_01|-7.559294|110.255239|347.7|22.3|SOS`) non-blocking on Core 1 and pushes them into a FreeRTOS queue.
+- Worker task on Core 0 updates `/pendaki/{device_id}` and manages `/sos_active/{device_id}`:
+  - First SOS → checks Firebase `/sos_active/{device_id}` and creates a new `ACTIVE` incident with a unique `incident_id` and server timestamps.
+  - Repeated SOS → `PATCH`es only coordinates, telemetry, and `last_sos_at` while preserving `incident_id`, `state`, `triggered_at`, and `acknowledged_*`.
+  - Return to `NORMAL` → updates `/pendaki/{device_id}` only; never deletes or resolves `/sos_active/{device_id}`.
 
-Raw pipe-delimited LoRa strings are also accepted, e.g. `RAKSA_01|-7.482529|110.214327|370.8|26.4|SOS|-108|6.5`. Timestamps should be Unix epoch milliseconds; packets without one use local receive time. Invalid packets are quarantined in System Log. Export CSV and per-hiker GPX remain available for local archiving.
+## Testing the Complete SOS Lifecycle
 
-Configure RTDB Security Rules for your deployment. Do not allow unauthenticated writes. Public read rules expose live hiker locations; for private deployments, add an authenticated dashboard flow before restricting read access.
-
-## Layout
-
-```
-src/
-  lib/parser.ts        RTDB structured-packet and raw LoRa payload validation
-  lib/firebase.ts      Firebase app lifecycle and database configuration
-  lib/firebaseStream.ts RTDB WebSocket listeners and packet delivery
-  lib/geo.ts           geodesic calculations and formatting
-  lib/audio.ts         Web Audio two-tone SAR siren
-  lib/export.ts        local GPX / CSV exporters
-  store/               persisted operator config and in-memory telemetry
-  hooks/               RTDB stream, hotkeys, alarm, derived hikers
-  components/          map, telemetry, connection modal and setup guide
-  views/               dashboard, relay nodes, system log
-```
+1. **Test 1 (Trigger SOS):** Send `RAKSA_01|-7.559294|110.255239|347.7|22.3|SOS` from the transmitter (or set `pendaki/RAKSA_01/status = "SOS"` / create `sos_active/RAKSA_01`). Verify the red pulsing banner, siren, red map marker, and **Emergencies** tab counter appear.
+2. **Test 2 (Button Released → NORMAL):** Send `RAKSA_01|-7.559294|110.255239|347.7|22.3|NORMAL`. Verify telemetry displays `NORMAL` while the persistent SOS incident remains `ACTIVE SOS`.
+3. **Test 3 (Acknowledge):** Sign in via the top-right **Operator** button, then click **ACKNOWLEDGE**. Verify the state changes to `ACKNOWLEDGED` with operator identity & server timestamp across all open tabs, while remaining visible in Active Emergency Alerts.
+4. **Test 4 (Mark as Rescued):** Click **MARK AS RESCUED**, enter a resolution note, check the explicit confirmation box, and confirm. Verify the alert disappears from `sos_active` and appears permanently under **Emergency History** (`sos_history`).
+5. **Test 5 (Page Refresh & Offline Resilience):** Trigger a new SOS, refresh the browser, and verify the exact same `incident_id` and elapsed time reload from Firebase.
+6. **Test 6 (Subsequent SOS):** After resolving an incident, trigger SOS again from `RAKSA_01`. Verify a new unique `incident_id` is created without overwriting the previous entry in `sos_history`.
 
 ## Shortcuts
 
-`/` search · `3` 2D/3D terrain · `M` mute siren · `Esc` close / deselect
-
-
-## Firebase live GPS integration
-
-**1. Paste your Firebase URL** — open [`src/firebase.config.ts`](src/firebase.config.ts) and set `DATABASE_URL`
-(Firebase Console → Realtime Database → Data tab, e.g. `https://xxx-default-rtdb.asia-southeast1.firebasedatabase.app`).
-The same file holds the root node (`pendaki`) and the LIVE / DELAYED / OFFLINE thresholds
-(`LIVE_WITHIN_SEC`, `OFFLINE_AFTER_SEC`). The URL can also be pasted at runtime via **Connect Firebase** (overrides the file).
-
-**2. Run locally**
-
-```bash
-npm install
-npm run dev        # open the printed http://localhost:5173
-```
-
-**3. Data** — the dashboard watches `pendaki/` with a single `onValue` listener; every child is a hiker
-(`device_id, latitude, longitude, altitude, temperature, status, rssi, snr, updated_at`). New device IDs appear automatically.
-Markers need valid coordinates (lat −90..90, lon −180..180, not 0,0). Connection state (LIVE / DELAYED / OFFLINE, from
-`updated_at`) is separate from the ESP32 `status` (NORMAL / SOS).
-
-**4. Test live updates** — in Firebase Console, edit `pendaki/RAKSA_01/latitude` / `longitude` (and set `updated_at` to the current
-epoch ms, e.g. `Date.now()` in the browser console). The marker glides to the new spot and the popup/cards update without refresh.
-Add `pendaki/RAKSA_02` with the same fields to see a second marker.
-
-**Permission errors** — if the dashboard shows "Permission denied", your Realtime Database rules block reads of `pendaki`.
-Allow read on that node (e.g. `"pendaki": { ".read": true }`) or use Firebase Auth. The dashboard never changes rules.
+`/` search · `3` 2D/3D terrain · `M` mute siren (does not resolve SOS) · `Esc` close / deselect

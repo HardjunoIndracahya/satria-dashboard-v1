@@ -1,26 +1,27 @@
 import { memo } from 'react';
-import { Pencil } from 'lucide-react';
-import { LinkPill, SignalBars, StatusPill } from './ui';
+import { Pencil, ShieldAlert } from 'lucide-react';
+import { IncidentStatePill, LinkPill, SignalBars, StatusPill } from './ui';
 import { HYPOTHERMIA_C, WEAK_RSSI, formatAgo, formatClock } from '../lib/format';
-import type { Hiker, Pairing } from '../types';
+import type { Hiker, Pairing, SosIncident } from '../types';
 
 function HikerCardBase({
   hiker,
   pairing,
+  sosIncident,
   selected,
-  acked,
   onSelect,
   onEdit,
 }: {
   hiker: Hiker;
   pairing?: Pairing;
+  sosIncident?: SosIncident;
   selected: boolean;
-  acked: boolean;
   onSelect: () => void;
   onEdit: () => void;
 }) {
   const p = hiker.latest;
-  const isSos = hiker.status === 'SOS';
+  const hasPersistentSos = Boolean(sosIncident);
+  const isSos = hasPersistentSos || hiker.status === 'SOS';
   const cold = p.temp < HYPOTHERMIA_C;
   const weak = p.rssi !== undefined && p.rssi <= WEAK_RSSI;
 
@@ -38,7 +39,7 @@ function HikerCardBase({
           onSelect();
         }
       }}
-      className={`group relative cursor-pointer rounded-ctl border p-2.5 pl-3 transition-colors ${border} ${bg} ${hiker.link === 'OFFLINE' ? 'opacity-90' : ''}`}
+      className={`group relative cursor-pointer rounded-ctl border p-2.5 pl-3 transition-colors ${border} ${bg} ${hiker.link === 'OFFLINE' && !isSos ? 'opacity-90' : ''}`}
     >
       {isSos && <span className="absolute inset-y-0 left-0 w-[3px] rounded-l-ctl bg-crimson" />}
       <div className="flex items-center justify-between gap-2">
@@ -63,12 +64,21 @@ function HikerCardBase({
         </div>
       </div>
 
-      <div className="mt-0.5 flex items-center gap-1.5 text-[11.5px] text-ink-muted">
+      {sosIncident && (
+        <div className="mt-1.5 flex flex-wrap items-center justify-between gap-1.5 rounded-chip border border-crimson/25 bg-surface/90 px-2 py-1">
+          <span className="inline-flex items-center gap-1 text-[10.5px] font-bold text-crimson">
+            <ShieldAlert size={12} />
+            Incident
+          </span>
+          <IncidentStatePill state={sosIncident.state} />
+        </div>
+      )}
+
+      <div className="mt-1 flex items-center gap-1.5 text-[11.5px] text-ink-muted">
         <span>Updated</span>
         <span className="num text-ink-2">{formatClock(p.ts)}</span>
         <span>·</span>
         <span className="num text-ink-2">{formatAgo(hiker.silentMs)}</span>
-        {isSos && acked && <span className="rounded-chip border border-crimson/30 bg-surface px-1 text-[10px] font-bold text-crimson">ACK</span>}
       </div>
 
       <div className="mt-2 grid grid-cols-[1.15fr_1fr_0.9fr] gap-2">
@@ -102,8 +112,10 @@ function HikerCardBase({
           <dd className="text-right">{p.lat.toFixed(6)}</dd>
           <dt className="text-ink-muted">Longitude</dt>
           <dd className="text-right">{p.lon.toFixed(6)}</dd>
-          <dt className="text-ink-muted">Condition</dt>
+          <dt className="text-ink-muted">TX Status</dt>
           <dd className="text-right">{hiker.status}</dd>
+          <dt className="text-ink-muted">Emergency</dt>
+          <dd className={`text-right font-bold ${sosIncident ? 'text-crimson' : ''}`}>{sosIncident ? sosIncident.state : 'None'}</dd>
           <dt className="text-ink-muted">Connection</dt>
           <dd className="text-right">{hiker.link}</dd>
           <dt className="text-ink-muted">Updates seen</dt>

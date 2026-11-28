@@ -1,14 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Check, ChevronDown, Copy, Download, ExternalLink, Phone, X } from 'lucide-react';
+import { Check, CheckCircle2, ChevronDown, Copy, Download, ExternalLink, Lock, Phone, ShieldAlert, ShieldCheck, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { AnimatedNumber, LinkPill, SignalBars, StatusPill } from '../ui';
+import { AnimatedNumber, IncidentStatePill, LinkPill, SignalBars, StatusPill } from '../ui';
+import { useAuth } from '../../store/auth';
 import { useConfig } from '../../store/config';
+import { useSos } from '../../store/sos';
+import { useTelemetry } from '../../store/telemetry';
 import { useUi } from '../../store/ui';
-import { HYPOTHERMIA_C, WEAK_RSSI, formatAgo, formatDateTime, nearestNode } from '../../lib/format';
+import { useNow } from '../../hooks';
+import { acknowledgeSosIncident } from '../../lib/sosService';
+import { HYPOTHERMIA_C, WEAK_RSSI, formatAgo, formatDateTime, formatDuration, nearestNode } from '../../lib/format';
 import { bearingDeg, distanceM, formatBearing, formatCoord, formatDelta, formatDistance, googleMapsUrl } from '../../lib/geo';
 import { download, hikerToGpx, packetsToCsv } from '../../lib/export';
-import type { Hiker } from '../../types';
+import type { Hiker, SosIncident } from '../../types';
 
 function Stat({ label, children, warn = false }: { label: string; children: React.ReactNode; warn?: boolean }) {
   return (
@@ -80,13 +85,34 @@ function ExportMenu({ hiker }: { hiker: Hiker }) {
 export function Inspector({ hiker }: { hiker: Hiker | null }) {
   const nodes = useConfig((s) => s.nodes);
   const pairing = useConfig((s) => (hiker ? s.pairings[hiker.id] : undefined));
-  const acks = useConfig((s) => s.acks);
-  const ack = useConfig((s) => s.ack);
+  const sosIncident = useSos((s) => (hiker ? s.active[hiker.id] : undefined));
+  const pending = useSos((s) => (hiker ? s.pending[hiker.id] : undefined));
+  const operator = useAuth((s) => s.user);
+  const connectionState = useTelemetry((s) => s.connectionState);
   const select = useUi((s) => s.select);
   const scrubIndex = useUi((s) => s.scrubIndex);
   const setScrub = useUi((s) => s.setScrub);
   const setView = useUi((s) => s.setView);
+  const openRescueModal = useUi((s) => s.openRescueModal);
+  const openAuthModal = useUi((s) => s.openAuthModal);
   const [copied, setCopied] = useState(false);
+
+  const handleAck = async () => {
+    if (!sosIncident) return;
+    if (!operator) {
+      toast.info('Basecamp operator sign-in required to acknowledge SOS.');
+      openAuthModal();
+      return;
+    }
+    try {
+      await acknowledgeSosIncident(sosIncident, operator);
+      toast.success(`SOS acknowledged for ${sosIncident.device_id}`, {
+        description: 'Alert remains visible until rescue is confirmed.',
+      });
+    } catch (error) {
+      toast.error('Acknowledge failed', { description: error instanceof Error ? error.message : 'Firebase error' });
+    }
+  };
 
   return (
     <AnimatePresence mode="wait">
@@ -97,13 +123,16 @@ export function Inspector({ hiker }: { hiker: Hiker | null }) {
           animate={{ opacity: 1, x: 0, scale: 1 }}
           exit={{ opacity: 0, x: -10 }}
           transition={{ type: 'spring', stiffness: 420, damping: 34 }}
-          className="scroll-thin absolute left-3 top-3 z-10 max-h-[calc(100%-24px)] w-[318px] overflow-y-auto rounded-panel border border-line bg-surface shadow-float"
+          className="scroll-thin absolute left-3 top-3 z-10 max-h-[calc(100%-24px)] w-[324px] overflow-y-auto rounded-panel border border-line bg-surface shadow-float"
           aria-label={`Inspector ${hiker.id}`}
         >
           <InspectorBody
             hiker={hiker}
             pairing={pairing}
-            acked={!!hiker.sosKey && !!acks[hiker.sosKey]}
+            sosIncident={sosIncident}
+            busy={Boolean(pending)}
+            hasOperator={Boolean(operator)}
+            disconnected={connectionState !== 'connected'}
             nodes={nodes}
             scrubIndex={scrubIndex}
             copied={copied}
@@ -119,7 +148,15 @@ export function Inspector({ hiker }: { hiker: Hiker | null }) {
               else toast.error('Clipboard unavailable');
             }}
             onClose={() => select(null)}
-            onAck={() => hiker.sosKey && ack(hiker.sosKey, hiker.id)}
+            onAck={handleAck}
+            onResolve={() => {
+              if (!operator) {
+                toast.info('Sign in as an authorized Basecamp operator to confirm rescue.');
+                openAuthModal();
+                return;
+              }
+              openRescueModal(hiker.id);
+            }}
             onLive={() => setScrub(null)}
             onSetupNodes={() => setView('nodes')}
           />
@@ -132,28 +169,37 @@ export function Inspector({ hiker }: { hiker: Hiker | null }) {
 function InspectorBody({
   hiker,
   pairing,
-  acked,
+  sosIncident,
+  busy,
+  hasOperator,
+  disconnected,
   nodes,
   scrubIndex,
   copied,
   onCopy,
   onClose,
   onAck,
+  onResolve,
   onLive,
   onSetupNodes,
 }: {
   hiker: Hiker;
   pairing?: ReturnType<typeof useConfig.getState>['pairings'][string];
-  acked: boolean;
+  sosIncident?: SosIncident;
+  busy: boolean;
+  hasOperator: boolean;
+  disconnected: boolean;
   nodes: ReturnType<typeof useConfig.getState>['nodes'];
   scrubIndex: number | null;
   copied: boolean;
   onCopy: () => void;
   onClose: () => void;
   onAck: () => void;
+  onResolve: () => void;
   onLive: () => void;
   onSetupNodes: () => void;
 }) {
+  const now = useNow(1000);
   const shown = scrubIndex !== null ? (hiker.track[scrubIndex] ?? hiker.latest) : hiker.latest;
   const playback = scrubIndex !== null;
   const base = nearestNode(
@@ -166,7 +212,7 @@ function InspectorBody({
 
   const cold = shown.temp < HYPOTHERMIA_C;
   const weak = shown.rssi !== undefined && shown.rssi <= WEAK_RSSI;
-  const isSos = hiker.status === 'SOS';
+  const isSos = Boolean(sosIncident) || hiker.status === 'SOS';
   const [hh, mm] = (pairing?.descentTime ?? '').split(':').map(Number);
   const overdue = (() => {
     if (!pairing?.descentTime || Number.isNaN(hh) || Number.isNaN(mm)) return false;
@@ -179,10 +225,8 @@ function InspectorBody({
     <>
       <header className={`flex items-start justify-between gap-3 border-b px-3.5 py-3 ${isSos ? 'border-crimson/30 bg-crimson-tint' : 'border-line'}`}>
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             <h3 className="num truncate text-[15px] font-bold">{hiker.id}</h3>
-            <span className="text-ink-muted">—</span>
-            <span className="label !text-[10.5px]">Status:</span>
             <StatusPill status={hiker.status} />
             <LinkPill link={hiker.link} />
           </div>
@@ -197,6 +241,28 @@ function InspectorBody({
           <X size={15} />
         </button>
       </header>
+
+      {sosIncident && (
+        <div className="border-b border-crimson/30 bg-crimson-tint/70 px-3.5 py-2.5 text-[11.5px]">
+          <div className="flex items-center justify-between gap-2">
+            <span className="inline-flex items-center gap-1 font-bold text-crimson">
+              <ShieldAlert size={13} /> Persistent SOS Incident
+            </span>
+            <IncidentStatePill state={sosIncident.state} />
+          </div>
+          <div className="num mt-1 text-[11px] text-ink-2">{sosIncident.incident_id}</div>
+          <div className="mt-1 flex items-center justify-between text-[11px] text-ink-2">
+            <span>Triggered: {formatDateTime(sosIncident.triggered_at)}</span>
+            <span className="num font-bold text-crimson">{formatDuration(now - sosIncident.triggered_at)}</span>
+          </div>
+          {hiker.status === 'NORMAL' && (
+            <div className="mt-1 font-medium text-crimson">TX returned to NORMAL — alert stays locked until rescued.</div>
+          )}
+          {sosIncident.acknowledged_by && (
+            <div className="mt-1 text-amber-ink">Ack by: {sosIncident.acknowledged_by}</div>
+          )}
+        </div>
+      )}
 
       {playback && (
         <div className="flex items-center justify-between gap-2 border-b border-line bg-canvas px-3.5 py-1.5">
@@ -270,7 +336,7 @@ function InspectorBody({
         {(pairing?.contact || pairing?.descentTime) && (
           <div className="grid grid-cols-2 gap-3">
             {pairing.descentTime && (
-              <Stat label="Target descent" warn={overdue && hiker.status !== 'SOS'}>
+              <Stat label="Target descent" warn={overdue && !isSos}>
                 <span className="num">{pairing.descentTime}</span>
                 {overdue && <span className="ml-1.5 text-[10px] font-bold uppercase text-amber-ink">Overdue</span>}
               </Stat>
@@ -288,15 +354,18 @@ function InspectorBody({
       </div>
 
       <div className="grid grid-cols-2 gap-2 border-t border-line p-3">
-        {isSos && !acked && (
-          <button className="btn btn-danger col-span-2 h-9" onClick={onAck}>
+        {sosIncident && sosIncident.state === 'ACTIVE' && (
+          <button className="btn btn-danger col-span-2 h-9" disabled={busy || disconnected} onClick={onAck}>
+            {!hasOperator && <Lock size={13} />}
+            <CheckCircle2 size={14} />
             Acknowledge SOS
           </button>
         )}
-        {isSos && acked && (
-          <div className="col-span-2 rounded-ctl border border-crimson/25 bg-crimson-tint px-3 py-1.5 text-center text-[12px] font-semibold text-crimson">
-            SOS acknowledged — still transmitting
-          </div>
+        {sosIncident && (
+          <button className="btn btn-primary col-span-2 h-9" disabled={busy} onClick={onResolve}>
+            {!hasOperator ? <Lock size={13} /> : <ShieldCheck size={14} />}
+            Mark as Rescued
+          </button>
         )}
         <button className="btn" onClick={onCopy}>
           {copied ? <Check size={14} className="text-forest" /> : <Copy size={14} />}

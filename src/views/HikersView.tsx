@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, ChevronsUpDown, Crosshair, Search } from 'lucide-react';
-import { LinkPill, Segmented, StatusPill } from '../components/ui';
+import { IncidentStatePill, LinkPill, Segmented, StatusPill } from '../components/ui';
 import { useConfig } from '../store/config';
+import { useSos } from '../store/sos';
 import { useUi } from '../store/ui';
 import { FILTER_LABELS, FILTER_ORDER, filterCounts, filterHikers } from '../lib/filter';
 import { formatAgo, formatDateTime } from '../lib/format';
@@ -51,18 +52,19 @@ export function HikersView({ hikers }: { hikers: Hiker[] }) {
   const select = useUi((s) => s.select);
   const focusHiker = useUi((s) => s.focusHiker);
   const pairings = useConfig((s) => s.pairings);
+  const activeSos = useSos((s) => s.active);
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'id', dir: 1 });
 
-  const counts = useMemo(() => filterCounts(hikers), [hikers]);
+  const counts = useMemo(() => filterCounts(hikers, activeSos), [hikers, activeSos]);
   const rows = useMemo(() => {
-    const list = filterHikers(hikers, filter, search, (h) => pairings[h.id]?.leader ?? '');
+    const list = filterHikers(hikers, filter, search, (h) => pairings[h.id]?.leader ?? '', activeSos);
     return [...list].sort((a, b) => {
       const x = value(a, sort.key);
       const y = value(b, sort.key);
       const c = typeof x === 'string' && typeof y === 'string' ? x.localeCompare(y, undefined, { numeric: true }) : Number(x) - Number(y);
       return (c || a.id.localeCompare(b.id)) * sort.dir;
     });
-  }, [hikers, filter, search, pairings, sort]);
+  }, [hikers, filter, search, pairings, activeSos, sort]);
 
   const options = FILTER_ORDER.map((v: SidebarFilter) => ({ value: v, label: FILTER_LABELS[v], count: counts[v] }));
   const selected = hikers.find((h) => h.id === selectedId);
@@ -123,6 +125,7 @@ export function HikersView({ hikers }: { hikers: Hiker[] }) {
                 {rows.map((h) => {
                   const p = h.latest;
                   const isSel = h.id === selectedId;
+                  const sosInc = activeSos[h.id];
                   return (
                     <tr
                       key={h.id}
@@ -131,8 +134,8 @@ export function HikersView({ hikers }: { hikers: Hiker[] }) {
                       onDoubleClick={() => focusHiker(h.id)}
                       onKeyDown={(e) => e.key === 'Enter' && focusHiker(h.id)}
                       className={`cursor-pointer border-b border-line transition-colors ${
-                        h.status === 'SOS' ? 'bg-crimson-tint' : isSel ? 'bg-forest-tint' : 'hover:bg-canvas'
-                      } ${h.link === 'OFFLINE' ? 'text-ink-2' : ''}`}
+                        sosInc || h.status === 'SOS' ? 'bg-crimson-tint' : isSel ? 'bg-forest-tint' : 'hover:bg-canvas'
+                      } ${h.link === 'OFFLINE' && !sosInc ? 'text-ink-2' : ''}`}
                       aria-selected={isSel}
                     >
                       <td className="num px-3 py-2 font-bold">{h.id}</td>
@@ -140,7 +143,12 @@ export function HikersView({ hikers }: { hikers: Hiker[] }) {
                       <td className="num px-3 py-2 text-right">{p.lon.toFixed(6)}</td>
                       <td className="num px-3 py-2 text-right">{p.alt.toFixed(1)}</td>
                       <td className="num px-3 py-2 text-right">{p.temp.toFixed(1)}</td>
-                      <td className="px-3 py-2"><StatusPill status={h.status} /></td>
+                      <td className="px-3 py-2">
+                        <div className="flex flex-wrap items-center gap-1">
+                          <StatusPill status={h.status} />
+                          {sosInc && <IncidentStatePill state={sosInc.state} />}
+                        </div>
+                      </td>
                       <td className="px-3 py-2"><LinkPill link={h.link} /></td>
                       <td className="num px-3 py-2 text-right">{p.rssi ?? '—'}</td>
                       <td className="num px-3 py-2 text-right">{p.snr ?? '—'}</td>

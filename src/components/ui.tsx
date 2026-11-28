@@ -1,7 +1,7 @@
 import { useEffect, useId, type ReactNode } from 'react';
 import { AnimatePresence, animate, motion, useMotionValue, useTransform } from 'framer-motion';
 import { X } from 'lucide-react';
-import type { HikerStatus, LinkState } from '../types';
+import type { HikerStatus, LinkState, SosIncidentState } from '../types';
 import { signalLevel } from '../lib/format';
 
 /* ------------------------------- Brand mark ------------------------------- */
@@ -48,6 +48,31 @@ export function LinkPill({ link, className = '' }: { link: LinkState; className?
     >
       <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
       {link}
+    </span>
+  );
+}
+
+/** Persistent SOS incident state pill — independent of live telemetry status (NORMAL / SOS). */
+const INCIDENT_PILL: Record<SosIncidentState, string> = {
+  ACTIVE: 'bg-crimson text-white border-crimson',
+  ACKNOWLEDGED: 'bg-amber-tint text-amber-ink border-amber/60',
+  RESOLVED: 'bg-forest-tint text-forest border-forest/30',
+};
+
+const INCIDENT_LABEL: Record<SosIncidentState, string> = {
+  ACTIVE: 'ACTIVE SOS',
+  ACKNOWLEDGED: 'ACKNOWLEDGED',
+  RESOLVED: 'RESOLVED',
+};
+
+export function IncidentStatePill({ state, className = '' }: { state: SosIncidentState; className?: string }) {
+  return (
+    <span
+      title={`Emergency incident state: ${state}`}
+      className={`inline-flex h-[20px] items-center gap-1.5 rounded-chip border px-1.5 text-[10.5px] font-bold tracking-[0.05em] ${INCIDENT_PILL[state]} ${className}`}
+    >
+      {state === 'ACTIVE' && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />}
+      {INCIDENT_LABEL[state]}
     </span>
   );
 }

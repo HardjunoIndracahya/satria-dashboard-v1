@@ -1,7 +1,21 @@
 import { useId } from 'react';
 import { motion } from 'framer-motion';
-import { Activity, BarChart3, LayoutDashboard, Map as MapIcon, Radio, ScrollText, Table2, Volume2, VolumeX } from 'lucide-react';
+import {
+  Activity,
+  BarChart3,
+  LayoutDashboard,
+  Lock,
+  Map as MapIcon,
+  Radio,
+  ScrollText,
+  ShieldAlert,
+  ShieldCheck,
+  Table2,
+  Volume2,
+  VolumeX,
+} from 'lucide-react';
 import { Logo } from './ui';
+import { useAuth } from '../store/auth';
 import { useConfig } from '../store/config';
 import { useTelemetry } from '../store/telemetry';
 import { useUi } from '../store/ui';
@@ -13,6 +27,7 @@ import type { AppView } from '../types';
 const TABS: { id: AppView; label: string; icon: typeof Activity }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'dashboard', label: 'Live Tracking', icon: MapIcon },
+  { id: 'emergencies', label: 'Emergencies', icon: ShieldAlert },
   { id: 'hikers', label: 'Hikers', icon: Table2 },
   { id: 'analytics', label: 'Analytics', icon: BarChart3 },
   { id: 'nodes', label: 'Relay Nodes', icon: Radio },
@@ -45,7 +60,7 @@ function SourcePill() {
   return (
     <button
       onClick={() => setView('overview')}
-      className="group flex h-8 max-w-[240px] items-center gap-2 rounded-full border border-line bg-canvas px-3 text-[12px] font-semibold text-ink-2 transition-colors hover:border-line-strong hover:bg-surface"
+      className="group flex h-8 max-w-[220px] items-center gap-2 rounded-full border border-line bg-canvas px-3 text-[12px] font-semibold text-ink-2 transition-colors hover:border-line-strong hover:bg-surface"
       title={error ?? 'Realtime Database connection status — click for details'}
     >
       <span className="relative flex h-2 w-2 shrink-0">
@@ -60,22 +75,24 @@ function SourcePill() {
 function Clock() {
   const now = useNow(1000);
   return (
-    <span className="num hidden whitespace-nowrap text-[12px] text-ink-2 xl:inline">
+    <span className="num hidden whitespace-nowrap text-[12px] text-ink-2 2xl:inline">
       <span className="mr-1.5 font-sans text-[11px] font-semibold uppercase tracking-wider text-ink-muted">System</span>
       {formatClock(now)}
     </span>
   );
 }
 
-export function TopBar({ sosActive }: { sosActive: boolean }) {
+export function TopBar({ sosAlarmActive, activeSosCount }: { sosAlarmActive: boolean; activeSosCount: number }) {
   const view = useUi((s) => s.view);
   const setView = useUi((s) => s.setView);
+  const openAuthModal = useUi((s) => s.openAuthModal);
+  const operator = useAuth((s) => s.user);
   const muted = useConfig((s) => s.muted);
   const setMuted = useConfig((s) => s.setMuted);
   const layoutId = useId();
 
   return (
-    <header className="z-30 flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-1.5 border-b border-line bg-surface px-3 py-2 md:px-4 lg:h-14 lg:flex-nowrap lg:py-0">
+    <header className="z-30 flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1.5 border-b border-line bg-surface px-3 py-2 md:px-4 lg:h-14 lg:flex-nowrap lg:py-0">
       <div className="flex min-w-0 items-center gap-3">
         <div className="flex items-center gap-2.5">
           <Logo />
@@ -89,22 +106,25 @@ export function TopBar({ sosActive }: { sosActive: boolean }) {
         <Clock />
       </div>
 
-      <div className="flex shrink-0 items-center gap-3 max-lg:order-last max-lg:w-full">
+      <div className="flex shrink-0 items-center gap-2 max-lg:order-last max-lg:w-full">
         <nav
-          className="scroll-thin relative flex min-w-0 items-center gap-0.5 overflow-x-auto rounded-ctl border border-line bg-canvas p-0.5 max-lg:w-full"
+          className="scroll-thin relative flex min-w-0 items-center gap-0.5 overflow-x-auto rounded-ctl border border-line bg-canvas p-0.5 max-lg:flex-1"
           role="tablist"
           aria-label="Dashboard sections"
         >
           {TABS.map((t) => {
             const active = view === t.id;
             const Icon = t.icon;
+            const isEmergencies = t.id === 'emergencies';
             return (
               <button
                 key={t.id}
                 role="tab"
                 aria-selected={active}
                 onClick={() => setView(t.id)}
-                className={`relative flex h-8 shrink-0 items-center gap-1.5 rounded-[6px] px-2.5 text-[12.5px] font-semibold transition-colors ${active ? 'text-ink' : 'text-ink-2 hover:text-ink'}`}
+                className={`relative flex h-8 shrink-0 items-center gap-1.5 rounded-[6px] px-2.5 text-[12.5px] font-semibold transition-colors ${
+                  active ? 'text-ink' : isEmergencies && activeSosCount > 0 ? 'text-crimson hover:text-crimson' : 'text-ink-2 hover:text-ink'
+                }`}
               >
                 {active && (
                   <motion.span
@@ -115,24 +135,38 @@ export function TopBar({ sosActive }: { sosActive: boolean }) {
                 )}
                 <Icon size={14} className="relative z-10" />
                 <span className="relative z-10">{t.label}</span>
+                {isEmergencies && activeSosCount > 0 && (
+                  <span className="num relative z-10 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-crimson px-1 text-[10px] font-extrabold text-white">
+                    {activeSosCount}
+                  </span>
+                )}
               </button>
             );
           })}
         </nav>
 
-        {sosActive && (
+        {sosAlarmActive && (
           <motion.button
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             onClick={() => setMuted(!muted)}
             className="btn h-8 w-8 shrink-0 border-crimson/40 !px-0 text-crimson hover:border-crimson hover:bg-crimson-tint"
-            title={muted ? 'Unmute SOS siren (M)' : 'Mute SOS siren (M)'}
+            title={muted ? 'Unmute SOS siren (M)' : 'Mute SOS siren (M) — muting does NOT resolve the alert'}
             aria-label={muted ? 'Unmute SOS siren' : 'Mute SOS siren'}
             aria-pressed={muted}
           >
             {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
           </motion.button>
         )}
+
+        <button
+          onClick={openAuthModal}
+          className={`btn h-8 shrink-0 ${operator ? 'border-forest/35 bg-forest-tint text-forest hover:bg-forest-tint' : ''}`}
+          title={operator ? `Signed in as ${operator.email}` : 'Sign in as authorized Basecamp operator'}
+        >
+          {operator ? <ShieldCheck size={14} /> : <Lock size={13} />}
+          <span className="hidden max-w-[110px] truncate sm:inline">{operator ? operator.displayName : 'Operator'}</span>
+        </button>
       </div>
     </header>
   );

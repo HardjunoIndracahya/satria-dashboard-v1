@@ -16,6 +16,7 @@ import { MapToolbar } from './MapToolbar';
 import { Inspector } from './Inspector';
 import { HikerPopup, MapLegend } from './MapExtras';
 import { useConfig } from '../../store/config';
+import { useSos } from '../../store/sos';
 import { useTelemetry } from '../../store/telemetry';
 import { useUi } from '../../store/ui';
 import { BASEMAP_ORDER, DEM_SOURCE, buildStyle, getCamera, saveCamera } from '../../lib/mapStyle';
@@ -92,6 +93,7 @@ export function MapView({ hikers, totalHikers = hikers.length }: { hikers: Hiker
   const [initialView] = useState(() => getCamera());
 
   const nodes = useConfig((s) => s.nodes);
+  const activeSos = useSos((s) => s.active);
   const hasEntries = useTelemetry((s) => s.total > 0);
   const connectionState = useTelemetry((s) => s.connectionState);
 
@@ -214,15 +216,19 @@ export function MapView({ hikers, totalHikers = hikers.length }: { hikers: Hiker
     }
   }, [hikers.length, loaded, fitAll]);
 
-  // cinematic fly-to on hiker focus
+  // cinematic fly-to on hiker focus (falls back to persistent SOS coords if live telemetry isn't loaded yet)
   useEffect(() => {
     if (!loaded || focusNonce === 0) return;
     const map = mapRef.current?.getMap();
     const id = useUi.getState().selectedId;
+    if (!map || !id) return;
     const h = hikersRef.current.find((x) => x.id === id);
-    if (!map || !h) return;
+    const inc = useSos.getState().active[id];
+    const lat = h?.latest.lat ?? inc?.latitude ?? null;
+    const lon = h?.latest.lon ?? inc?.longitude ?? null;
+    if (lat === null || lon === null) return;
     map.flyTo({
-      center: [h.latest.lon, h.latest.lat],
+      center: [lon, lat],
       zoom: Math.max(map.getZoom(), 13.5),
       pitch: terrainRef.current ? FLY_PITCH_3D : 0,
       duration: 1700,
@@ -404,6 +410,7 @@ export function MapView({ hikers, totalHikers = hikers.length }: { hikers: Hiker
           <HikerMarker
             key={h.id}
             hiker={h}
+            sosIncident={activeSos[h.id]}
             selected={h.id === selectedId}
             onSelect={() => {
               useUi.getState().focusHiker(h.id);
@@ -411,7 +418,44 @@ export function MapView({ hikers, totalHikers = hikers.length }: { hikers: Hiker
             }}
           />
         ))}
-        {popupHiker && <HikerPopup hiker={popupHiker} onClose={() => setPopupId(null)} />}
+        {/* Persistent SOS markers for incidents that do not yet have live telemetry in `pendaki/` */}
+        {Object.values(activeSos)
+          .filter(
+            (inc) =>
+              !hikers.some((h) => h.id === inc.device_id) &&
+              inc.latitude !== null &&
+              inc.longitude !== null &&
+              !(inc.latitude === 0 && inc.longitude === 0),
+          )
+          .map((inc) => (
+            <HikerMarker
+              key={`sos-${inc.device_id}`}
+              hiker={{
+                id: inc.device_id,
+                latest: {
+                  id: inc.device_id,
+                  lat: inc.latitude!,
+                  lon: inc.longitude!,
+                  alt: inc.altitude ?? 0,
+                  temp: inc.temperature ?? 0,
+                  status: 'SOS',
+                  rssi: inc.rssi ?? undefined,
+                  snr: inc.snr ?? undefined,
+                  ts: inc.last_sos_at,
+                  tsSource: 'firebase',
+                  row: 0,
+                },
+                track: [],
+                status: 'SOS',
+                link: 'OFFLINE',
+                silentMs: Math.max(0, Date.now() - inc.last_sos_at),
+              }}
+              sosIncident={inc}
+              selected={inc.device_id === selectedId}
+              onSelect={() => useUi.getState().setView('emergencies')}
+            />
+          ))}
+        {popupHiker && <HikerPopup hiker={popupHiker} sosIncident={activeSos[popupHiker.id]} onClose={() => setPopupId(null)} />}
       </Map>
 
       <MapToolbar
@@ -430,7 +474,7 @@ export function MapView({ hikers, totalHikers = hikers.length }: { hikers: Hiker
       />
 
       <Inspector hiker={selected} />
-      <MapLegend hikers={hikers} onFocus={(id) => { useUi.getState().focusHiker(id); setPopupId(id); }} />
+      <MapLegend hikers={hikers} activeSos={activeSos} onFocus={(id) => { useUi.getState().focusHiker(id); setPopupId(id); }} />
 
       {measure && (
         <div className="absolute bottom-10 left-1/2 z-20 flex -translate-x-1/2 items-center gap-3 rounded-panel border border-line bg-surface px-3.5 py-2 shadow-float">

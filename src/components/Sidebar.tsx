@@ -5,6 +5,7 @@ import { Segmented } from './ui';
 import { HikerCard } from './HikerCard';
 import { EmptyState } from './EmptyState';
 import { useConfig } from '../store/config';
+import { useSos } from '../store/sos';
 import { useTelemetry } from '../store/telemetry';
 import { useUi } from '../store/ui';
 import { FIREBASE_STATUS } from '../lib/firebase';
@@ -13,7 +14,7 @@ import type { Hiker, SidebarFilter } from '../types';
 
 export function Sidebar({ hikers }: { hikers: Hiker[] }) {
   const pairings = useConfig((s) => s.pairings);
-  const acks = useConfig((s) => s.acks);
+  const activeSos = useSos((s) => s.active);
   const error = useTelemetry((s) => s.error);
   const corrupt = useTelemetry((s) => s.corrupt);
   const total = useTelemetry((s) => s.total);
@@ -33,9 +34,12 @@ export function Sidebar({ hikers }: { hikers: Hiker[] }) {
     if (searchFocusNonce > 0) inputRef.current?.focus();
   }, [searchFocusNonce]);
 
-  const counts = useMemo(() => filterCounts(hikers), [hikers]);
+  const counts = useMemo(() => filterCounts(hikers, activeSos), [hikers, activeSos]);
 
-  const visible = useMemo(() => filterHikers(hikers, filter, search, (h) => pairings[h.id]?.leader ?? ''), [hikers, filter, search, pairings]);
+  const visible = useMemo(
+    () => filterHikers(hikers, filter, search, (h) => pairings[h.id]?.leader ?? '', activeSos),
+    [hikers, filter, search, pairings, activeSos],
+  );
 
   const options: { value: SidebarFilter; label: string; count: number }[] = FILTER_ORDER.map((value) => ({ value, label: FILTER_LABELS[value], count: counts[value] }));
 
@@ -88,8 +92,8 @@ export function Sidebar({ hikers }: { hikers: Hiker[] }) {
               <HikerCard
                 hiker={h}
                 pairing={pairings[h.id]}
+                sosIncident={activeSos[h.id]}
                 selected={selectedId === h.id}
-                acked={!!h.sosKey && !!acks[h.sosKey]}
                 onSelect={() => focusHiker(h.id)}
                 onEdit={() => openPairing(h.id)}
               />

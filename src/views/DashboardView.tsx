@@ -5,6 +5,7 @@ import { Sidebar } from '../components/Sidebar';
 import { MapView } from '../components/map/MapView';
 import { TelemetryDock } from '../components/dock/TelemetryDock';
 import { useConfig } from '../store/config';
+import { useSos } from '../store/sos';
 import { useUi } from '../store/ui';
 import { filterHikers } from '../lib/filter';
 import type { Hiker } from '../types';
@@ -16,12 +17,13 @@ export function DashboardView({ hikers }: { hikers: Hiker[] }) {
   const filter = useUi((s) => s.filter);
   const search = useUi((s) => s.search);
   const pairings = useConfig((s) => s.pairings);
+  const activeSos = useSos((s) => s.active);
   const selected = hikers.find((h) => h.id === selectedId) ?? null;
 
   // The same filter/search that drives the hiker list also drives the map markers.
   const mapHikers = useMemo(
-    () => filterHikers(hikers, filter, search, (h) => pairings[h.id]?.leader ?? ''),
-    [hikers, filter, search, pairings],
+    () => filterHikers(hikers, filter, search, (h) => pairings[h.id]?.leader ?? '', activeSos),
+    [hikers, filter, search, pairings, activeSos],
   );
 
   return (

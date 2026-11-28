@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { Marker } from 'react-map-gl/maplibre';
-import type { Hiker, NodeType, RelayNode } from '../../types';
+import type { Hiker, NodeType, RelayNode, SosIncident } from '../../types';
 
 const HIKER_COLOR = { SOS: '#DC2626', NORMAL: '#166534' } as const;
 const LINK_RING = { LIVE: '#166534', DELAYED: '#D97706', OFFLINE: '#64748B' } as const;
@@ -27,8 +27,19 @@ function useAnimatedPosition(lon: number, lat: number, durationMs = 900) {
   return pos;
 }
 
-function HikerMarkerBase({ hiker, selected, onSelect }: { hiker: Hiker; selected: boolean; onSelect: () => void }) {
-  const sos = hiker.status === 'SOS';
+function HikerMarkerBase({
+  hiker,
+  sosIncident,
+  selected,
+  onSelect,
+}: {
+  hiker: Hiker;
+  sosIncident?: SosIncident;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const sos = Boolean(sosIncident) || hiker.status === 'SOS';
+  const unackedSos = sosIncident?.state === 'ACTIVE' || (!sosIncident && hiker.status === 'SOS');
   const pos = useAnimatedPosition(hiker.latest.lon, hiker.latest.lat);
   return (
     <Marker
@@ -41,28 +52,28 @@ function HikerMarkerBase({ hiker, selected, onSelect }: { hiker: Hiker; selected
         onSelect();
       }}
     >
-      <div className={`relative h-[18px] w-[18px] cursor-pointer ${hiker.link === 'OFFLINE' ? 'opacity-70' : ''}`}>
+      <div className={`relative h-[18px] w-[18px] cursor-pointer ${hiker.link === 'OFFLINE' && !sos ? 'opacity-70' : ''}`}>
         {sos && (
           <>
             <span className="radar-ring" />
-            <span className="radar-ring" style={{ animationDelay: '1s' }} />
+            {unackedSos && <span className="radar-ring" style={{ animationDelay: '1s' }} />}
           </>
         )}
         {selected && <span className="absolute -inset-[5px] rounded-full border-2 border-ink/80" />}
         <span
           className="absolute -inset-[2px] rounded-full"
-          style={{ border: `2px ${hiker.link === 'LIVE' ? 'solid' : 'dashed'} ${LINK_RING[hiker.link]}` }}
+          style={{ border: `2px ${hiker.link === 'LIVE' ? 'solid' : 'dashed'} ${sos ? '#DC2626' : LINK_RING[hiker.link]}` }}
         />
         <span
           className="absolute inset-0 rounded-full border-[2.5px] border-white"
-          style={{ background: HIKER_COLOR[hiker.status], boxShadow: '0 1px 4px rgba(15,23,42,.45)' }}
+          style={{ background: sos ? HIKER_COLOR.SOS : HIKER_COLOR.NORMAL, boxShadow: '0 1px 4px rgba(15,23,42,.45)' }}
         />
         <span
           className={`num absolute left-1/2 top-full mt-[7px] -translate-x-1/2 whitespace-nowrap rounded-chip border px-1.5 py-px text-[10px] font-bold leading-[14px] shadow-hair ${
             sos ? 'border-crimson bg-crimson text-white' : 'border-line-strong bg-white text-ink'
           }`}
         >
-          {hiker.id}
+          {sosIncident ? `${hiker.id} · ${sosIncident.state === 'ACTIVE' ? 'SOS' : 'ACK'}` : hiker.id}
         </span>
       </div>
     </Marker>
