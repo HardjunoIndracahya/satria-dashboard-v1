@@ -104,6 +104,45 @@
   outline: none;
 }
 
+/* Custom MapLibre Popup styling — consistent with Swiss GIS command-center tokens */
+.maplibregl-popup {
+  z-index: 18;
+  max-width: min(296px, calc(100vw - 44px)) !important;
+}
+.maplibregl-popup-content {
+  background: #ffffff;
+  border: 1px solid #dce2de;
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08), 0 12px 28px -10px rgba(15, 23, 42, 0.28);
+  padding: 12px 14px;
+  color: #0f172a;
+  max-height: min(320px, 52vh);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #c5cec9 transparent;
+}
+.maplibregl-popup-close-button {
+  top: 6px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  font-size: 16px;
+  line-height: 22px;
+  color: #475569;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.maplibregl-popup-close-button:hover {
+  background: #f3f5f4;
+  color: #0f172a;
+}
+.maplibregl-popup-tip {
+  border-top-color: #ffffff;
+}
+
 /* ------------------------------ Map markers ------------------------------- */
 @keyframes radar {
   0% {

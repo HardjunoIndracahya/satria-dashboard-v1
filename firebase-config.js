@@ -16,13 +16,14 @@
  *  public identifiers; access is enforced by your Realtime Database Security Rules.
  */
 export const firebaseConfig = {
-  apiKey: 'YOUR_API_KEY',
-  authDomain: 'YOUR_PROJECT.firebaseapp.com',
-  databaseURL: 'https://satria-emergency-keychain-default-rtdb.asia-southeast1.firebasedatabase.app/',
-  projectId: 'YOUR_PROJECT_ID',
-  storageBucket: 'YOUR_STORAGE_BUCKET',
-  messagingSenderId: 'YOUR_MESSAGING_SENDER_ID',
-  appId: 'YOUR_APP_ID',
+  apiKey: "AIzaSyCRy0pgzVv8dR0hn0rlQ_Q4MoVpUfhHSVw",
+  authDomain: "satria-emergency-keychain.firebaseapp.com",
+  databaseURL: "https://satria-emergency-keychain-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "satria-emergency-keychain",
+  storageBucket: "satria-emergency-keychain.firebasestorage.app",
+  messagingSenderId: "641911330937",
+  appId: "1:641911330937:web:ae328318d14fc63b4d5ca8",
+  measurementId: "G-9RSWWF19BW"
 };
 
 /** Dashboard behaviour (not credentials). */

@@ -123,7 +123,7 @@ export function Inspector({ hiker }: { hiker: Hiker | null }) {
           animate={{ opacity: 1, x: 0, scale: 1 }}
           exit={{ opacity: 0, x: -10 }}
           transition={{ type: 'spring', stiffness: 420, damping: 34 }}
-          className="scroll-thin absolute left-3 top-3 z-10 max-h-[calc(100%-24px)] w-[324px] overflow-y-auto rounded-panel border border-line bg-surface shadow-float"
+          className="scroll-thin pointer-events-auto min-h-0 w-[min(316px,calc(100vw-72px))] overflow-y-auto rounded-panel border border-line bg-surface shadow-float sm:w-[316px]"
           aria-label={`Inspector ${hiker.id}`}
         >
           <InspectorBody
