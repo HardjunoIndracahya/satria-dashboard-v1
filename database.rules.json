@@ -1,36 +1,53 @@
 {
   "rules": {
+    ".read": false,
+    ".write": false,
+
+    "users": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('active').val() !== false && (auth.token.role === 'ADMIN' || (root.child('users').child(auth.uid).child('role').val() === 'ADMIN' && root.child('users').child(auth.uid).child('active').val() === true))",
+      ".write": false,
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || (root.child('users').child(auth.uid).child('active').val() !== false && (auth.token.role === 'ADMIN' || (root.child('users').child(auth.uid).child('role').val() === 'ADMIN' && root.child('users').child(auth.uid).child('active').val() === true))))"
+      }
+    },
+
     "operators": {
+      ".read": false,
+      ".write": false,
       "$uid": {
-        ".read": "auth != null && auth.uid === $uid",
-        ".write": false
+        ".read": "auth != null && auth.uid === $uid"
       }
     },
+
     "basecamp_devices": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('active').val() !== false && (auth.token.role === 'ADMIN' || (root.child('users').child(auth.uid).child('role').val() === 'ADMIN' && root.child('users').child(auth.uid).child('active').val() === true))",
+      ".write": false,
       "$uid": {
-        ".read": "auth != null && auth.uid === $uid",
-        ".write": false
+        ".read": "auth != null && (auth.uid === $uid || (root.child('users').child(auth.uid).child('active').val() !== false && (auth.token.role === 'ADMIN' || (root.child('users').child(auth.uid).child('role').val() === 'ADMIN' && root.child('users').child(auth.uid).child('active').val() === true))))"
       }
     },
+
     "pendaki": {
-      ".read": "auth != null && (root.child('operators').child(auth.uid).val() === true || root.child('basecamp_devices').child(auth.uid).val() === true)",
+      ".read": "auth != null && ((root.child('users').child(auth.uid).child('active').val() !== false && (auth.token.role === 'ADMIN' || auth.token.role === 'OPERATOR' || auth.token.role === 'VIEWER' || ((root.child('users').child(auth.uid).child('role').val() === 'ADMIN' || root.child('users').child(auth.uid).child('role').val() === 'OPERATOR' || root.child('users').child(auth.uid).child('role').val() === 'VIEWER') && root.child('users').child(auth.uid).child('active').val() === true) || root.child('operators').child(auth.uid).val() === true)) || auth.token.role === 'BASECAMP_DEVICE' || root.child('basecamp_devices').child(auth.uid).val() === true || root.child('basecamp_devices').child(auth.uid).child('active').val() === true)",
       "$device_id": {
-        ".write": "auth != null && (root.child('basecamp_devices').child(auth.uid).val() === true || root.child('operators').child(auth.uid).val() === true)",
+        ".write": "auth != null && (auth.token.role === 'BASECAMP_DEVICE' || root.child('basecamp_devices').child(auth.uid).val() === true || root.child('basecamp_devices').child(auth.uid).child('active').val() === true || (root.child('users').child(auth.uid).child('active').val() !== false && (auth.token.role === 'ADMIN' || auth.token.role === 'OPERATOR' || ((root.child('users').child(auth.uid).child('role').val() === 'ADMIN' || root.child('users').child(auth.uid).child('role').val() === 'OPERATOR') && root.child('users').child(auth.uid).child('active').val() === true) || root.child('operators').child(auth.uid).val() === true)))",
         ".validate": "newData.hasChildren(['device_id', 'latitude', 'longitude', 'status', 'updated_at']) && newData.child('latitude').isNumber() && newData.child('latitude').val() >= -90 && newData.child('latitude').val() <= 90 && newData.child('longitude').isNumber() && newData.child('longitude').val() >= -180 && newData.child('longitude').val() <= 180"
       }
     },
+
     "sos_active": {
-      ".read": "auth != null && (root.child('operators').child(auth.uid).val() === true || root.child('basecamp_devices').child(auth.uid).val() === true)",
+      ".read": "auth != null && ((root.child('users').child(auth.uid).child('active').val() !== false && (auth.token.role === 'ADMIN' || auth.token.role === 'OPERATOR' || auth.token.role === 'VIEWER' || ((root.child('users').child(auth.uid).child('role').val() === 'ADMIN' || root.child('users').child(auth.uid).child('role').val() === 'OPERATOR' || root.child('users').child(auth.uid).child('role').val() === 'VIEWER') && root.child('users').child(auth.uid).child('active').val() === true) || root.child('operators').child(auth.uid).val() === true)) || auth.token.role === 'BASECAMP_DEVICE' || root.child('basecamp_devices').child(auth.uid).val() === true || root.child('basecamp_devices').child(auth.uid).child('active').val() === true)",
       "$device_id": {
-        ".write": "auth != null && (root.child('operators').child(auth.uid).val() === true || (root.child('basecamp_devices').child(auth.uid).val() === true && newData.exists()))",
-        ".validate": "!newData.exists() ? (root.child('operators').child(auth.uid).val() === true && newData.parent().parent().child('sos_history').child($device_id).child(data.child('incident_id').val()).exists()) : (newData.hasChildren(['device_id', 'incident_id', 'state', 'triggered_at', 'last_sos_at']) && (newData.child('state').val() === 'ACTIVE' || (newData.child('state').val() === 'ACKNOWLEDGED' && root.child('operators').child(auth.uid).val() === true)) && (!data.exists() || (newData.child('incident_id').val() === data.child('incident_id').val() && newData.child('triggered_at').val() === data.child('triggered_at').val())))"
+        ".write": "auth != null && ((root.child('users').child(auth.uid).child('active').val() !== false && (auth.token.role === 'ADMIN' || auth.token.role === 'OPERATOR' || ((root.child('users').child(auth.uid).child('role').val() === 'ADMIN' || root.child('users').child(auth.uid).child('role').val() === 'OPERATOR') && root.child('users').child(auth.uid).child('active').val() === true) || root.child('operators').child(auth.uid).val() === true)) || ((auth.token.role === 'BASECAMP_DEVICE' || root.child('basecamp_devices').child(auth.uid).val() === true || root.child('basecamp_devices').child(auth.uid).child('active').val() === true) && newData.exists()))",
+        ".validate": "!newData.exists() ? (root.child('users').child(auth.uid).child('active').val() !== false && (auth.token.role === 'ADMIN' || auth.token.role === 'OPERATOR' || ((root.child('users').child(auth.uid).child('role').val() === 'ADMIN' || root.child('users').child(auth.uid).child('role').val() === 'OPERATOR') && root.child('users').child(auth.uid).child('active').val() === true) || root.child('operators').child(auth.uid).val() === true) && newData.parent().parent().child('sos_history').child($device_id).child(data.child('incident_id').val()).exists()) : (newData.hasChildren(['device_id', 'incident_id', 'state', 'triggered_at', 'last_sos_at']) && (newData.child('state').val() === 'ACTIVE' || (newData.child('state').val() === 'ACKNOWLEDGED' && root.child('users').child(auth.uid).child('active').val() !== false && (auth.token.role === 'ADMIN' || auth.token.role === 'OPERATOR' || ((root.child('users').child(auth.uid).child('role').val() === 'ADMIN' || root.child('users').child(auth.uid).child('role').val() === 'OPERATOR') && root.child('users').child(auth.uid).child('active').val() === true) || root.child('operators').child(auth.uid).val() === true))) && (!data.exists() || (newData.child('incident_id').val() === data.child('incident_id').val() && newData.child('triggered_at').val() === data.child('triggered_at').val())))"
       }
     },
+
     "sos_history": {
-      ".read": "auth != null && root.child('operators').child(auth.uid).val() === true",
+      ".read": "auth != null && root.child('users').child(auth.uid).child('active').val() !== false && (auth.token.role === 'ADMIN' || auth.token.role === 'OPERATOR' || auth.token.role === 'VIEWER' || ((root.child('users').child(auth.uid).child('role').val() === 'ADMIN' || root.child('users').child(auth.uid).child('role').val() === 'OPERATOR' || root.child('users').child(auth.uid).child('role').val() === 'VIEWER') && root.child('users').child(auth.uid).child('active').val() === true) || root.child('operators').child(auth.uid).val() === true)",
       "$device_id": {
         "$incident_id": {
-          ".write": "auth != null && root.child('operators').child(auth.uid).val() === true && !data.exists() && newData.exists()",
+          ".write": "auth != null && root.child('users').child(auth.uid).child('active').val() !== false && (auth.token.role === 'ADMIN' || auth.token.role === 'OPERATOR' || ((root.child('users').child(auth.uid).child('role').val() === 'ADMIN' || root.child('users').child(auth.uid).child('role').val() === 'OPERATOR') && root.child('users').child(auth.uid).child('active').val() === true) || root.child('operators').child(auth.uid).val() === true) && !data.exists() && newData.exists()",
           ".validate": "newData.hasChildren(['device_id', 'incident_id', 'state', 'triggered_at', 'resolved_at', 'resolved_by']) && newData.child('state').val() === 'RESOLVED' && newData.child('resolved_by_uid').val() === auth.uid"
         }
       }

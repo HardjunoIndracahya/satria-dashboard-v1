@@ -1,6 +1,6 @@
-# RAKSA — Basecamp & SAR Telemetry Dashboard
+# RAKSA — Basecamp Command Center
 
-Precision outdoor GIS dashboard for mountain Basecamp / SAR teams tracking hikers carrying ESP32 + LoRa SX1278 (433 MHz) + GPS devices. Telemetry and persistent SOS emergencies stream directly from Firebase Realtime Database (RTDB). **No demo data is bundled.**
+Private, authentication-protected outdoor GIS dashboard for mountain Basecamp & SAR teams tracking hikers carrying ESP32 + LoRa SX1278 (433 MHz) + GPS devices. All hiker locations, telemetry, and persistent SOS emergencies are protected by **Firebase Authentication**, **Role-Based Access Control (RBAC)**, and **deny-by-default Firebase Realtime Database Security Rules**.
 
 ## Quick Start
 
@@ -11,53 +11,83 @@ npm run build
 npm run typecheck
 ```
 
-## Firebase Configuration (`firebase-config.js`)
+## 1. Firebase Project Configuration (`firebase-config.js`)
 
-The dashboard connects automatically on load using [`firebase-config.js`](firebase-config.js). There is no manual Connect button.
+Open [`firebase-config.js`](firebase-config.js) and fill in your Firebase Web App config (`apiKey`, `authDomain`, `databaseURL`, `projectId`, `storageBucket`, `messagingSenderId`, `appId`).
+- Never embed Firebase service-account private keys or Admin SDK credentials in `firebase-config.js` or any frontend file.
 
-1. Open Firebase Console → **Project settings → General → Your apps** (Web app) and copy `apiKey`, `authDomain`, `databaseURL`, `projectId`, `storageBucket`, `messagingSenderId`, and `appId` into `firebase-config.js`.
-2. In Firebase Console → **Authentication → Sign-in method**, enable **Email/Password** and create:
-   - At least one **Basecamp Operator** account (used to sign in on the dashboard to Acknowledge & Mark as Rescued).
-   - One dedicated **Basecamp Receiver** account (used by the ESP32 firmware).
-3. In Firebase Console → **Realtime Database → Data**, register the authorized UIDs:
-   ```json
-   {
-     "operators": {
-       "<OPERATOR_UID>": true
-     },
-     "basecamp_devices": {
-       "<BASECAMP_RECEIVER_UID>": true
-     }
-   }
-   ```
-4. Deploy the security rules from [`database.rules.json`](database.rules.json) in Firebase Console → **Realtime Database → Rules**.
+## 2. Enable Authentication & Deploy Deny-by-Default Security Rules
 
-> **Security note:** Never expose Firebase service-account keys in frontend code, and do not leave `.write: true` publicly open in production. Only authenticated UIDs listed under `/operators` can acknowledge or resolve SOS incidents, and `/sos_history` is append-only.
+1. In **Firebase Console → Authentication → Sign-in method**, enable **Email/Password**.
+   - Public self-registration is completely disabled in the RAKSA dashboard.
+2. In **Firebase Console → Realtime Database → Rules**, paste and publish [`database.rules.json`](database.rules.json).
+   - Default policy is **deny all** (`".read": false, ".write": false`).
+   - Unauthenticated HTTP requests (e.g. `curl https://<project>.firebasedatabase.app/pendaki.json`) return `401 Permission denied`.
+   - Authenticated accounts without an active authorized role (`ADMIN`, `OPERATOR`, or `VIEWER`) are blocked both by Firebase Security Rules and by the dashboard's Access Denied guard.
 
-## Firebase Database Structure
+## 3. Provision Users & Roles (`ADMIN`, `OPERATOR`, `VIEWER`)
 
-- `pendaki/{device_id}` — latest live hiker telemetry (`device_id`, `latitude`, `longitude`, `altitude`, `temperature`, `status`, `rssi`, `snr`, `updated_at`).
-- `sos_active/{device_id}` — persistent unresolved SOS incidents (`ACTIVE` or `ACKNOWLEDGED`). Never automatically cleared when `pendaki/{device_id}/status` changes back to `NORMAL`.
-- `sos_history/{device_id}/{incident_id}` — permanently archived `RESOLVED` incidents with `resolved_at`, `resolved_by`, `resolved_by_uid`, and `resolution_note`.
+Run the administrator CLI [`scripts/admin-provision.mjs`](scripts/admin-provision.mjs) on a trusted admin workstation (requires a downloaded Firebase Service Account JSON — gitignored, never exposed to the browser):
 
-## ESP32 Basecamp Receiver Firmware
+```bash
+npm install --no-save firebase-admin
+export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
+export FIREBASE_DATABASE_URL="https://<project>-default-rtdb.asia-southeast1.firebasedatabase.app"
 
-See [`firmware/esp32_basecamp_receiver/esp32_basecamp_receiver.ino`](firmware/esp32_basecamp_receiver/esp32_basecamp_receiver.ino):
-- Receives LoRa packets (`RAKSA_01|-7.559294|110.255239|347.7|22.3|SOS`) non-blocking on Core 1 and pushes them into a FreeRTOS queue.
-- Worker task on Core 0 updates `/pendaki/{device_id}` and manages `/sos_active/{device_id}`:
-  - First SOS → checks Firebase `/sos_active/{device_id}` and creates a new `ACTIVE` incident with a unique `incident_id` and server timestamps.
-  - Repeated SOS → `PATCH`es only coordinates, telemetry, and `last_sos_at` while preserving `incident_id`, `state`, `triggered_at`, and `acknowledged_*`.
-  - Return to `NORMAL` → updates `/pendaki/{device_id}` only; never deletes or resolves `/sos_active/{device_id}`.
+# Create or authorize personnel (sets Firebase Auth Custom Claims + /users/<uid>)
+node scripts/admin-provision.mjs create-user --email admin@basecamp.org --name "Basecamp Admin" --role ADMIN
+node scripts/admin-provision.mjs create-user --email op@basecamp.org --name "SAR Operator" --role OPERATOR
+node scripts/admin-provision.mjs create-user --email viewer@basecamp.org --name "SAR Observer" --role VIEWER
 
-## Testing the Complete SOS Lifecycle
+# Change a user's role or immediately revoke access (disables account & invalidates tokens)
+node scripts/admin-provision.mjs set-role --uid <UID> --role OPERATOR
+node scripts/admin-provision.mjs revoke-user --uid <UID>
+```
 
-1. **Test 1 (Trigger SOS):** Send `RAKSA_01|-7.559294|110.255239|347.7|22.3|SOS` from the transmitter (or set `pendaki/RAKSA_01/status = "SOS"` / create `sos_active/RAKSA_01`). Verify the red pulsing banner, siren, red map marker, and **Emergencies** tab counter appear.
-2. **Test 2 (Button Released → NORMAL):** Send `RAKSA_01|-7.559294|110.255239|347.7|22.3|NORMAL`. Verify telemetry displays `NORMAL` while the persistent SOS incident remains `ACTIVE SOS`.
-3. **Test 3 (Acknowledge):** Sign in via the top-right **Operator** button, then click **ACKNOWLEDGE**. Verify the state changes to `ACKNOWLEDGED` with operator identity & server timestamp across all open tabs, while remaining visible in Active Emergency Alerts.
-4. **Test 4 (Mark as Rescued):** Click **MARK AS RESCUED**, enter a resolution note, check the explicit confirmation box, and confirm. Verify the alert disappears from `sos_active` and appears permanently under **Emergency History** (`sos_history`).
-5. **Test 5 (Page Refresh & Offline Resilience):** Trigger a new SOS, refresh the browser, and verify the exact same `incident_id` and elapsed time reload from Firebase.
-6. **Test 6 (Subsequent SOS):** After resolving an incident, trigger SOS again from `RAKSA_01`. Verify a new unique `incident_id` is created without overwriting the previous entry in `sos_history`.
+> **Quick Console bootstrap (without Admin SDK yet):** Create a user in **Firebase Console → Authentication → Users**, copy their UID, and add `/users/<UID>` in **Realtime Database → Data**:
+> ```json
+> {
+>   "uid": "<UID>",
+>   "email": "admin@basecamp.org",
+>   "displayName": "Basecamp Admin",
+>   "role": "ADMIN",
+>   "active": true
+> }
+> ```
 
-## Shortcuts
+### Role Permissions Matrix (Enforced by Firebase Security Rules)
 
-`/` search · `3` 2D/3D terrain · `M` mute siren (does not resolve SOS) · `Esc` close / deselect
+| Capability | `ADMIN` | `OPERATOR` | `VIEWER` | `BASECAMP_DEVICE` (ESP32) |
+| --- | :---: | :---: | :---: | :---: |
+| View live GPS map, telemetry, analytics & logs | Yes | Yes | Yes | `/pendaki` only |
+| View active SOS alerts & emergency history | Yes | Yes | Yes | `/sos_active` only |
+| Acknowledge SOS & Confirm Hiker Rescued | Yes | Yes | **Denied** | **Denied** |
+| View `/users` & `/basecamp_devices` directory | Yes | **Denied** | **Denied** | **Denied** |
+| Write `/pendaki` telemetry & create/patch `sos_active` | Yes | Yes | **Denied** | Yes (validated, no resolve/delete) |
+| Modify `/users` roles from browser | **Denied** (Admin SDK only) | **Denied** | **Denied** | **Denied** |
+
+## 4. Secure ESP32 Basecamp Receiver Ingestion
+
+Choose either of the two secure ingestion options (neither reopens public database writes):
+
+1. **Least-Privilege Device Account (built into [`firmware/esp32_basecamp_receiver/esp32_basecamp_receiver.ino`](firmware/esp32_basecamp_receiver/esp32_basecamp_receiver.ino)):**
+   - Provision a dedicated device identity:
+     ```bash
+     node scripts/admin-provision.mjs register-basecamp --email basecamp-01@raksa.local --label "Basecamp Pos 1" --password "<STRONG_PASSWORD>"
+     ```
+   - Configure `FIREBASE_API_KEY`, `BASECAMP_EMAIL`, and `BASECAMP_PASSWORD` in the `.ino` sketch. The ESP32 refreshes its short-lived ID token automatically and can ONLY write `/pendaki/$device_id` and create/patch `/sos_active/$device_id` (cannot delete/resolve SOS, cannot read `/users` or `/sos_history`).
+2. **Trusted Cloud Function / Cloud Run Backend (optional [`scripts/esp32-ingest-function.js`](scripts/esp32-ingest-function.js)):**
+   - Deploy the HTTPS endpoint with `BASECAMP_INGEST_KEY` in Firebase Secret Manager; the backend verifies the device header and writes to RTDB with Firebase Admin SDK.
+
+## 5. Acceptance Verification Tests
+
+1. **Test 1 — Unauthenticated Access:** Open `/`, `/live-tracking`, or `/emergencies` in an incognito window → automatically redirected to `/login`; zero GPS coordinates, telemetry, or SOS data rendered or fetched.
+2. **Test 2 — Invalid Login:** Submit wrong email/password → access denied with clear error message.
+3. **Test 3 — Authorized Login:** Sign in with an authorized account → dashboard loads automatically according to assigned role.
+4. **Test 4 — Unauthorized Direct Firebase Access:** Run `curl "https://<YOUR_DB_URL>/pendaki.json"` and `curl "https://<YOUR_DB_URL>/sos_active.json"` without auth → Firebase responds `401 Permission denied`.
+5. **Test 5 — Viewer Permissions:** Sign in as `VIEWER` → can view map, hikers, and SOS alerts, but Acknowledge / Mark as Rescued buttons are restricted (`Read-only`) and direct writes are rejected by Firebase rules.
+6. **Test 6 — Operator Permissions:** Sign in as `OPERATOR` → can monitor hikers, acknowledge SOS, and confirm rescues, but `Users` admin tab is hidden and `/users` directory reads are denied by Firebase rules.
+7. **Test 7 — Admin Permissions:** Sign in as `ADMIN` → full access including the `Users` Access Control directory and provisioning CLI generator.
+8. **Test 8 — Logout:** Click profile menu → **Sign Out**, then navigate manually to `/live-tracking` → RTDB listeners are detached, local telemetry & SOS state are wiped, siren stops, and browser redirects to `/login`.
+9. **Test 9 — ESP32 Compatibility:** Transmit a LoRa packet through the authenticated Basecamp Receiver → `/pendaki/{device_id}` updates in real time while public RTDB remains locked.
+10. **Test 10 — Persistent SOS:** Trigger SOS, release button to `NORMAL`, acknowledge as `OPERATOR`/`ADMIN`, refresh page, and confirm rescue → incident stays locked until rescue confirmation and archives to `/sos_history` with operator UID and server timestamp.

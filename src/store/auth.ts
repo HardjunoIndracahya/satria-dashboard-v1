@@ -1,28 +1,42 @@
 import { create } from 'zustand';
-import type { OperatorUser } from '../types';
+import type { AuthStatus, OperatorUser } from '../types';
+
+export interface UnauthorizedIdentity {
+  uid: string;
+  email: string;
+  displayName: string;
+  reason: string;
+}
 
 interface AuthState {
+  status: AuthStatus;
+  /** Verified authorized user with an active ADMIN, OPERATOR, or VIEWER role. */
   user: OperatorUser | null;
-  /** True once Firebase Auth has checked the persisted session on load. */
-  ready: boolean;
+  /** Authenticated Firebase identity that lacks an authorized active role. */
+  unauthorizedUser: UnauthorizedIdentity | null;
   /** True when firebase-config.js has apiKey configured for Firebase Auth. */
   authAvailable: boolean;
   error?: string;
 
-  setUser: (user: OperatorUser | null) => void;
-  setReady: (ready: boolean) => void;
+  setAuthorized: (user: OperatorUser) => void;
+  setUnauthorized: (identity: UnauthorizedIdentity) => void;
+  setUnauthenticated: (error?: string) => void;
+  setLoading: () => void;
   setAuthAvailable: (available: boolean) => void;
   setError: (error?: string) => void;
 }
 
 export const useAuth = create<AuthState>((set) => ({
+  status: 'loading',
   user: null,
-  ready: false,
+  unauthorizedUser: null,
   authAvailable: false,
   error: undefined,
 
-  setUser: (user) => set({ user }),
-  setReady: (ready) => set({ ready }),
+  setAuthorized: (user) => set({ status: 'authorized', user, unauthorizedUser: null, error: undefined }),
+  setUnauthorized: (unauthorizedUser) => set({ status: 'unauthorized', user: null, unauthorizedUser, error: undefined }),
+  setUnauthenticated: (error) => set({ status: 'unauthenticated', user: null, unauthorizedUser: null, error }),
+  setLoading: () => set({ status: 'loading', error: undefined }),
   setAuthAvailable: (authAvailable) => set({ authAvailable }),
   setError: (error) => set({ error }),
 }));

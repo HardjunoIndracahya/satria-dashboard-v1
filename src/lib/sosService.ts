@@ -1,5 +1,6 @@
 import { ref, runTransaction, serverTimestamp, update } from 'firebase/database';
 import { getActiveDatabase, normalizeDatabaseRoot, SOS_ACTIVE_ROOT, SOS_HISTORY_ROOT } from './firebase';
+import { canManageEmergencies } from './rbac';
 import { useTelemetry } from '../store/telemetry';
 import { useSos } from '../store/sos';
 import type { OperatorUser, Packet, SosHistoryIncident, SosIncident } from '../types';
@@ -108,7 +109,7 @@ function formatWriteError(error: unknown, actionLabel: string): Error {
   const err = error as { code?: string; message?: string };
   if (err?.code === 'PERMISSION_DENIED' || /permission[_ ]denied/i.test(err?.message ?? '')) {
     return new Error(
-      `Permission denied while trying to ${actionLabel}. Verify your operator account is authorized under /operators/<uid> in Firebase Realtime Database rules.`,
+      `Permission denied while trying to ${actionLabel}. Only authorized ADMIN or OPERATOR accounts can modify SOS incidents.`,
     );
   }
   return new Error(err?.message || `Failed to ${actionLabel}. Check Firebase connection.`);
@@ -116,7 +117,10 @@ function formatWriteError(error: unknown, actionLabel: string): Error {
 
 function assertWritable(operator: OperatorUser | null): ReturnType<typeof getActiveDatabase> {
   if (!operator) {
-    throw new Error('Operator sign-in is required to perform emergency actions.');
+    throw new Error('Authentication is required to perform emergency actions.');
+  }
+  if (!canManageEmergencies(operator.role)) {
+    throw new Error(`Role "${operator.role}" has read-only access and cannot acknowledge or resolve SOS incidents.`);
   }
   if (useTelemetry.getState().connectionState !== 'connected') {
     throw new Error('Firebase is currently disconnected. Cannot synchronize changes — the emergency alert remains active.');

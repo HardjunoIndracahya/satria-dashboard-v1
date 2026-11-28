@@ -71,8 +71,11 @@ export interface Hiker {
 }
 
 export type BasemapId = 'topo' | 'satellite' | 'osm';
-export type AppView = 'overview' | 'dashboard' | 'emergencies' | 'hikers' | 'analytics' | 'nodes' | 'log';
+export type AppView = 'overview' | 'dashboard' | 'emergencies' | 'hikers' | 'analytics' | 'nodes' | 'log' | 'users';
 export type SidebarFilter = 'all' | 'live' | 'delayed' | 'offline' | 'sos';
+
+export type UserRole = 'ADMIN' | 'OPERATOR' | 'VIEWER';
+export type AuthStatus = 'loading' | 'unauthenticated' | 'unauthorized' | 'authorized';
 
 export type SosIncidentState = 'ACTIVE' | 'ACKNOWLEDGED' | 'RESOLVED';
 
@@ -121,4 +124,25 @@ export interface OperatorUser {
   uid: string;
   email: string;
   displayName: string;
+  role: UserRole;
+  /** Where the verified role was sourced from (Firebase custom claims or protected RTDB /users). */
+  roleSource: 'claims' | 'database';
+  accountStatus: 'ACTIVE';
+}
+
+export interface DirectoryUserRecord {
+  uid: string;
+  email: string;
+  displayName: string;
+  role: UserRole;
+  active: boolean;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
+export interface BasecampDeviceRecord {
+  uid: string;
+  label: string;
+  active: boolean;
+  email?: string;
 }

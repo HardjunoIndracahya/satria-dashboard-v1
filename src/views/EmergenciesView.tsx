@@ -7,8 +7,8 @@ import {
   Clock,
   Crosshair,
   ExternalLink,
+  Eye,
   History,
-  Lock,
   Search,
   ShieldAlert,
   ShieldCheck,
@@ -22,6 +22,7 @@ import { useSos } from '../store/sos';
 import { useTelemetry } from '../store/telemetry';
 import { useUi } from '../store/ui';
 import { useNow } from '../hooks';
+import { canManageEmergencies, ROLE_META } from '../lib/rbac';
 import { acknowledgeSosIncident } from '../lib/sosService';
 import { formatAgo, formatDateTime, formatDuration } from '../lib/format';
 import { googleMapsUrl } from '../lib/geo';
@@ -43,11 +44,11 @@ function ActiveIncidentCard({ incident, hiker, now }: { incident: SosIncident; h
   const connectionState = useTelemetry((s) => s.connectionState);
   const focusHiker = useUi((s) => s.focusHiker);
   const openRescueModal = useUi((s) => s.openRescueModal);
-  const openAuthModal = useUi((s) => s.openAuthModal);
 
   const isUnacked = incident.state === 'ACTIVE';
   const disconnected = connectionState !== 'connected';
   const busy = Boolean(pending);
+  const canRespond = canManageEmergencies(operator?.role);
 
   const lat = hiker?.latest.lat ?? incident.latitude;
   const lon = hiker?.latest.lon ?? incident.longitude;
@@ -57,11 +58,7 @@ function ActiveIncidentCard({ incident, hiker, now }: { incident: SosIncident; h
   const snr = hiker?.latest.snr ?? incident.snr ?? undefined;
 
   const handleAck = async () => {
-    if (!operator) {
-      toast.info('Operator sign-in required to acknowledge SOS.');
-      openAuthModal();
-      return;
-    }
+    if (!canRespond || !operator) return;
     try {
       await acknowledgeSosIncident(incident, operator);
       toast.success(`Acknowledged ${incident.device_id}`, {
@@ -173,32 +170,33 @@ function ActiveIncidentCard({ incident, hiker, now }: { incident: SosIncident; h
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {isUnacked && (
-              <button
-                className="btn btn-danger h-9"
-                disabled={busy || disconnected}
-                onClick={handleAck}
-              >
-                {!operator && <Lock size={13} />}
-                <CheckCircle2 size={14} />
-                {pending === 'ack' ? 'Acknowledging…' : 'ACKNOWLEDGE'}
-              </button>
+            {canRespond ? (
+              <>
+                {isUnacked && (
+                  <button
+                    className="btn btn-danger h-9"
+                    disabled={busy || disconnected}
+                    onClick={handleAck}
+                  >
+                    <CheckCircle2 size={14} />
+                    {pending === 'ack' ? 'Acknowledging…' : 'ACKNOWLEDGE'}
+                  </button>
+                )}
+                <button
+                  className="btn btn-primary h-9"
+                  disabled={busy}
+                  onClick={() => openRescueModal(incident.device_id)}
+                >
+                  <ShieldCheck size={14} />
+                  MARK AS RESCUED
+                </button>
+              </>
+            ) : (
+              <span className="inline-flex h-9 items-center gap-1.5 rounded-ctl border border-line bg-canvas px-3 text-[12px] font-semibold text-ink-2">
+                <Eye size={14} />
+                Read-only ({operator ? ROLE_META[operator.role].label : 'Viewer'}) — response restricted
+              </span>
             )}
-            <button
-              className="btn btn-primary h-9"
-              disabled={busy}
-              onClick={() => {
-                if (!operator) {
-                  toast.info('Sign in as an authorized Basecamp operator to mark hiker as rescued.');
-                  openAuthModal();
-                  return;
-                }
-                openRescueModal(incident.device_id);
-              }}
-            >
-              {!operator ? <Lock size={13} /> : <ShieldCheck size={14} />}
-              MARK AS RESCUED
-            </button>
           </div>
         </div>
       </div>
@@ -211,7 +209,6 @@ export function EmergenciesView({ incidents, hikers }: { incidents: SosIncident[
   const sosError = useSos((s) => s.error);
   const connectionState = useTelemetry((s) => s.connectionState);
   const operator = useAuth((s) => s.user);
-  const openAuthModal = useUi((s) => s.openAuthModal);
   const now = useNow(1000);
 
   const [search, setSearch] = useState('');
@@ -266,10 +263,12 @@ export function EmergenciesView({ incidents, hikers }: { incidents: SosIncident[
                 {notifPerm === 'granted' ? 'Alerts Enabled' : 'Enable Browser Alerts'}
               </button>
             )}
-            <button className={operator ? 'btn' : 'btn btn-primary'} onClick={openAuthModal}>
-              {operator ? <ShieldCheck size={14} className="text-forest" /> : <Lock size={14} />}
-              {operator ? `Operator: ${operator.displayName}` : 'Operator Sign In'}
-            </button>
+            {operator && (
+              <span className={`inline-flex h-8 items-center gap-1.5 rounded-ctl border px-2.5 text-[12px] font-semibold ${ROLE_META[operator.role].badgeClass}`}>
+                <ShieldCheck size={13} />
+                {ROLE_META[operator.role].label}: {operator.displayName}
+              </span>
+            )}
           </div>
         </div>
 

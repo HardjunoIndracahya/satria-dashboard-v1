@@ -94,8 +94,13 @@ export function manageFirebaseListener(reference: DatabaseReference, unsubscribe
   return cleanup;
 }
 
-export function disposeFirebase(): void {
+/** Unsubscribes all active RTDB listeners while keeping the shared FirebaseApp & Auth session intact. */
+export function disposeRealtimeListeners(): void {
   for (const cleanup of [...listenerCleanups]) cleanup();
+}
+
+export function disposeFirebase(): void {
+  disposeRealtimeListeners();
   const app = activeApp;
   activeApp = null;
   activeDatabase = null;

@@ -8,6 +8,7 @@ import { useSos } from '../store/sos';
 import { useTelemetry } from '../store/telemetry';
 import { useUi } from '../store/ui';
 import { useNow } from '../hooks';
+import { canManageEmergencies } from '../lib/rbac';
 import { resolveSosIncident } from '../lib/sosService';
 import { formatDateTime, formatDuration } from '../lib/format';
 import type { Hiker } from '../types';
@@ -15,10 +16,10 @@ import type { Hiker } from '../types';
 export function RescueConfirmModal({ hikers }: { hikers: Hiker[] }) {
   const deviceId = useUi((s) => s.rescueTargetId);
   const close = useUi((s) => s.closeRescueModal);
-  const openAuthModal = useUi((s) => s.openAuthModal);
   const incident = useSos((s) => (deviceId ? s.active[deviceId] : undefined));
   const pending = useSos((s) => (deviceId ? s.pending[deviceId] : undefined));
   const operator = useAuth((s) => s.user);
+  const canRespond = canManageEmergencies(operator?.role);
   const connectionState = useTelemetry((s) => s.connectionState);
   const pairing = useConfig((s) => (deviceId ? s.pairings[deviceId] : undefined));
   const now = useNow(1000);
@@ -68,7 +69,7 @@ export function RescueConfirmModal({ hikers }: { hikers: Hiker[] }) {
           <button className="btn" disabled={busy} onClick={close}>
             Cancel
           </button>
-          {operator ? (
+          {canRespond && (
             <button
               className="btn btn-primary"
               disabled={!confirmed || busy || disconnected}
@@ -76,17 +77,6 @@ export function RescueConfirmModal({ hikers }: { hikers: Hiker[] }) {
             >
               <ShieldCheck size={14} />
               {busy ? 'Resolving in Firebase…' : 'Confirm Rescued & Resolve SOS'}
-            </button>
-          ) : (
-            <button
-              className="btn btn-primary"
-              onClick={() => {
-                close();
-                openAuthModal();
-              }}
-            >
-              <Lock size={14} />
-              Sign In as Operator
             </button>
           )}
         </>
@@ -134,10 +124,10 @@ export function RescueConfirmModal({ hikers }: { hikers: Hiker[] }) {
             </dl>
           </div>
 
-          {!operator && (
+          {!canRespond && (
             <div className="flex items-start gap-2 rounded-ctl border border-amber/40 bg-amber-tint p-3 text-[12px] leading-relaxed text-amber-ink">
               <Lock size={15} className="mt-0.5 shrink-0" />
-              <span>Only authenticated Basecamp operators can confirm a rescue. Sign in first to authorize this resolution.</span>
+              <span>Your role ({operator?.role ?? 'VIEWER'}) is read-only. Only ADMIN or OPERATOR accounts can confirm a rescue.</span>
             </div>
           )}
 
@@ -148,7 +138,7 @@ export function RescueConfirmModal({ hikers }: { hikers: Hiker[] }) {
             </div>
           )}
 
-          {operator && (
+          {canRespond && operator && (
             <>
               <Field label="Resolution note (optional)" hint={`Recorded with your operator identity: ${operator.displayName} (${operator.email})`}>
                 <textarea

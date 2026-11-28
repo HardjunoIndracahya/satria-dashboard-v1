@@ -18,11 +18,14 @@ interface SosState {
   setHistory: (history: SosHistoryIncident[]) => void;
   setPending: (deviceId: string, action: PendingSosAction | null) => void;
   setError: (error?: string) => void;
+  /** Clears sensitive local SOS state on logout/revocation (never deletes Firebase data). */
+  reset: () => void;
 }
 
 /**
  * Persistent SOS state store.
  * IMPORTANT: Never cleared on temporary disconnect — Firebase `sos_active` is the source of truth.
+ * Only reset in local browser memory when the user logs out or loses authorization.
  */
 export const useSos = create<SosState>((set) => ({
   active: {},
@@ -41,4 +44,5 @@ export const useSos = create<SosState>((set) => ({
       return { pending: next };
     }),
   setError: (error) => set({ error }),
+  reset: () => set({ active: {}, history: [], loaded: false, pending: {}, error: undefined }),
 }));

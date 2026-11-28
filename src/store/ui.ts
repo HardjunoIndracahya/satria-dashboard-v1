@@ -19,8 +19,6 @@ interface UiState {
   pairingId: string | null;
   /** Device ID currently open in the Mark as Rescued confirmation modal. */
   rescueTargetId: string | null;
-  /** Operator authentication modal visibility. */
-  authModalOpen: boolean;
 
   setView: (v: AppView) => void;
   select: (id: string | null) => void;
@@ -39,8 +37,8 @@ interface UiState {
   closePairing: () => void;
   openRescueModal: (deviceId: string) => void;
   closeRescueModal: () => void;
-  openAuthModal: () => void;
-  closeAuthModal: () => void;
+  /** Clears sensitive UI selections/modals when logging out or losing access. */
+  resetProtectedUi: () => void;
   /** Esc behaviour: closes the top-most layer. Returns true if something was closed. */
   dismiss: () => boolean;
 }
@@ -61,7 +59,6 @@ export const useUi = create<UiState>((set, get) => ({
   scrubIndex: null,
   pairingId: null,
   rescueTargetId: null,
-  authModalOpen: false,
 
   setView: (view) => set({ view }),
   select: (selectedId) => set({ selectedId, scrubIndex: null }),
@@ -80,14 +77,18 @@ export const useUi = create<UiState>((set, get) => ({
   closePairing: () => set({ pairingId: null }),
   openRescueModal: (rescueTargetId) => set({ rescueTargetId }),
   closeRescueModal: () => set({ rescueTargetId: null }),
-  openAuthModal: () => set({ authModalOpen: true }),
-  closeAuthModal: () => set({ authModalOpen: false }),
+  resetProtectedUi: () =>
+    set({
+      selectedId: null,
+      search: '',
+      filter: 'all',
+      measure: false,
+      scrubIndex: null,
+      pairingId: null,
+      rescueTargetId: null,
+    }),
   dismiss: () => {
     const s = get();
-    if (s.authModalOpen) {
-      set({ authModalOpen: false });
-      return true;
-    }
     if (s.rescueTargetId) {
       set({ rescueTargetId: null });
       return true;

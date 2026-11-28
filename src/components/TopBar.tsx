@@ -1,19 +1,22 @@
-import { useId } from 'react';
-import { motion } from 'framer-motion';
+import { useEffect, useId, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
   Activity,
   BarChart3,
+  ChevronDown,
   LayoutDashboard,
-  Lock,
+  LogOut,
   Map as MapIcon,
   Radio,
   ScrollText,
   ShieldAlert,
   ShieldCheck,
   Table2,
+  UserCog,
   Volume2,
   VolumeX,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Logo } from './ui';
 import { useAuth } from '../store/auth';
 import { useConfig } from '../store/config';
@@ -21,10 +24,12 @@ import { useTelemetry } from '../store/telemetry';
 import { useUi } from '../store/ui';
 import { useNow } from '../hooks';
 import { FIREBASE_STATUS } from '../lib/firebase';
+import { signOutUser } from '../lib/firebaseAuth';
+import { canManageUsers, ROLE_META } from '../lib/rbac';
 import { formatClock } from '../lib/format';
 import type { AppView } from '../types';
 
-const TABS: { id: AppView; label: string; icon: typeof Activity }[] = [
+const BASE_TABS: { id: AppView; label: string; icon: typeof Activity; adminOnly?: boolean }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'dashboard', label: 'Live Tracking', icon: MapIcon },
   { id: 'emergencies', label: 'Emergencies', icon: ShieldAlert },
@@ -32,6 +37,7 @@ const TABS: { id: AppView; label: string; icon: typeof Activity }[] = [
   { id: 'analytics', label: 'Analytics', icon: BarChart3 },
   { id: 'nodes', label: 'Relay Nodes', icon: Radio },
   { id: 'log', label: 'System Log', icon: ScrollText },
+  { id: 'users', label: 'Users', icon: UserCog, adminOnly: true },
 ];
 
 /** Read-only Firebase connection indicator (connection is automatic, via firebase-config.js). */
@@ -60,7 +66,7 @@ function SourcePill() {
   return (
     <button
       onClick={() => setView('overview')}
-      className="group flex h-8 max-w-[220px] items-center gap-2 rounded-full border border-line bg-canvas px-3 text-[12px] font-semibold text-ink-2 transition-colors hover:border-line-strong hover:bg-surface"
+      className="group flex h-8 max-w-[200px] items-center gap-2 rounded-full border border-line bg-canvas px-3 text-[12px] font-semibold text-ink-2 transition-colors hover:border-line-strong hover:bg-surface"
       title={error ?? 'Realtime Database connection status — click for details'}
     >
       <span className="relative flex h-2 w-2 shrink-0">
@@ -82,14 +88,132 @@ function Clock() {
   );
 }
 
+function UserProfileMenu() {
+  const user = useAuth((s) => s.user);
+  const setView = useUi((s) => s.setView);
+  const [open, setOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open]);
+
+  if (!user) return null;
+  const meta = ROLE_META[user.role];
+
+  const handleLogout = async () => {
+    setSigningOut(true);
+    try {
+      await signOutUser();
+      toast('Signed out — local telemetry cleared');
+    } catch {
+      toast.error('Unable to sign out cleanly');
+    } finally {
+      setSigningOut(false);
+      setOpen(false);
+    }
+  };
+
+  return (
+    <div ref={menuRef} className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="btn h-8 gap-2 border-line bg-canvas px-2.5 hover:bg-surface"
+        title={`${user.displayName} (${user.email}) — ${meta.label}`}
+      >
+        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-forest text-[10.5px] font-bold uppercase text-white">
+          {user.displayName.slice(0, 1)}
+        </span>
+        <span className="hidden max-w-[105px] truncate text-[12px] font-semibold text-ink md:inline">{user.displayName}</span>
+        <span className={`rounded-chip border px-1.5 py-px text-[9.5px] font-bold uppercase tracking-wider ${meta.badgeClass}`}>
+          {meta.label}
+        </span>
+        <ChevronDown size={13} className={`text-ink-muted transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            role="menu"
+            initial={{ opacity: 0, y: 6, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 4, scale: 0.98 }}
+            transition={{ duration: 0.14 }}
+            className="absolute right-0 top-full z-40 mt-2 w-[272px] overflow-hidden rounded-panel border border-line bg-surface shadow-float"
+          >
+            <div className="border-b border-line bg-canvas/70 p-3.5">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="truncate text-[13.5px] font-bold text-ink">{user.displayName}</div>
+                  <div className="num truncate text-[11.5px] text-ink-2">{user.email}</div>
+                </div>
+                <span className={`shrink-0 rounded-chip border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${meta.badgeClass}`}>
+                  {meta.label}
+                </span>
+              </div>
+              <div className="mt-2 flex items-center gap-1.5 text-[11px] font-medium text-forest">
+                <ShieldCheck size={12} />
+                <span>Account Status: {user.accountStatus}</span>
+              </div>
+              <p className="mt-1 text-[11px] leading-relaxed text-ink-muted">{meta.description}</p>
+            </div>
+
+            <div className="p-2">
+              {canManageUsers(user.role) && (
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    setView('users');
+                    setOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-ctl px-2.5 py-2 text-left text-[12.5px] font-semibold text-ink hover:bg-canvas"
+                >
+                  <UserCog size={14} className="text-ink-2" />
+                  Manage Authorized Users
+                </button>
+              )}
+              <button
+                role="menuitem"
+                disabled={signingOut}
+                onClick={handleLogout}
+                className="flex w-full items-center gap-2 rounded-ctl px-2.5 py-2 text-left text-[12.5px] font-semibold text-crimson hover:bg-crimson-tint disabled:opacity-60"
+              >
+                <LogOut size={14} />
+                {signingOut ? 'Signing out…' : 'Sign Out'}
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 export function TopBar({ sosAlarmActive, activeSosCount }: { sosAlarmActive: boolean; activeSosCount: number }) {
   const view = useUi((s) => s.view);
   const setView = useUi((s) => s.setView);
-  const openAuthModal = useUi((s) => s.openAuthModal);
-  const operator = useAuth((s) => s.user);
+  const role = useAuth((s) => s.user?.role);
   const muted = useConfig((s) => s.muted);
   const setMuted = useConfig((s) => s.setMuted);
   const layoutId = useId();
+
+  const visibleTabs = BASE_TABS.filter((t) => !t.adminOnly || canManageUsers(role));
 
   return (
     <header className="z-30 flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1.5 border-b border-line bg-surface px-3 py-2 md:px-4 lg:h-14 lg:flex-nowrap lg:py-0">
@@ -112,7 +236,7 @@ export function TopBar({ sosAlarmActive, activeSosCount }: { sosAlarmActive: boo
           role="tablist"
           aria-label="Dashboard sections"
         >
-          {TABS.map((t) => {
+          {visibleTabs.map((t) => {
             const active = view === t.id;
             const Icon = t.icon;
             const isEmergencies = t.id === 'emergencies';
@@ -159,14 +283,7 @@ export function TopBar({ sosAlarmActive, activeSosCount }: { sosAlarmActive: boo
           </motion.button>
         )}
 
-        <button
-          onClick={openAuthModal}
-          className={`btn h-8 shrink-0 ${operator ? 'border-forest/35 bg-forest-tint text-forest hover:bg-forest-tint' : ''}`}
-          title={operator ? `Signed in as ${operator.email}` : 'Sign in as authorized Basecamp operator'}
-        >
-          {operator ? <ShieldCheck size={14} /> : <Lock size={13} />}
-          <span className="hidden max-w-[110px] truncate sm:inline">{operator ? operator.displayName : 'Operator'}</span>
-        </button>
+        <UserProfileMenu />
       </div>
     </header>
   );

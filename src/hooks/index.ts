@@ -6,12 +6,13 @@ import { useSos } from '../store/sos';
 import { useTelemetry } from '../store/telemetry';
 import { useUi } from '../store/ui';
 import { deriveHikers } from '../lib/format';
-import { DATABASE_ROOT, FIREBASE_STATUS, LIVE_WITHIN_MS, OFFLINE_AFTER_MS, disposeFirebase } from '../lib/firebase';
-import { subscribeOperatorAuth } from '../lib/firebaseAuth';
+import { DATABASE_ROOT, disposeRealtimeListeners, FIREBASE_STATUS, LIVE_WITHIN_MS, OFFLINE_AFTER_MS } from '../lib/firebase';
+import { subscribeAuthSession } from '../lib/firebaseAuth';
 import { subscribeFirebaseStream } from '../lib/firebaseStream';
+import { canAccessView, canManageEmergencies, VIEW_PATHS, viewFromPathname } from '../lib/rbac';
 import { ensureSosLatchedFromPacket } from '../lib/sosService';
 import { startAlarm, stopAlarm, unlockAudio, isAudioRunning } from '../lib/audio';
-import type { Hiker, SosIncident } from '../types';
+import type { AppView, Hiker, SosIncident } from '../types';
 
 export function useNow(intervalMs = 1000): number {
   const [now, setNow] = useState(() => Date.now());
@@ -28,7 +29,6 @@ export function useHikers(): Hiker[] {
   const now = useNow(5000);
   return useMemo(() => {
     const list = deriveHikers(tracks, now, LIVE_WITHIN_MS, OFFLINE_AFTER_MS);
-    // Keep hikers with unresolved persistent SOS incidents sorted at the very top
     return [...list].sort((a, b) => {
       const incA = activeSos[a.id];
       const incB = activeSos[b.id];
@@ -62,7 +62,6 @@ export function useUnackedSosIncidents(incidents: SosIncident[]): SosIncident[] 
 /**
  * Triggers one toast + optional Browser Notification per unique `incident_id`.
  * Never repeats for unchanged telemetry or repeated SOS packets of the same incident.
- * Also auto-focuses the map when a brand new incident arrives while viewing Live Tracking.
  */
 export function useSosNotifications(incidents: SosIncident[], hikers: Hiker[]) {
   const seen = useRef(new Set<string>());
@@ -93,11 +92,9 @@ export function useSosNotifications(incidents: SosIncident[], hikers: Hiker[]) {
       });
 
       if (!isInitialLoad) {
-        // Auto-focus map if operator is currently watching Live Tracking
         if (useUi.getState().view === 'dashboard') {
           useUi.getState().focusHiker(inc.device_id);
         }
-        // Browser Notification when permission is granted
         if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
           try {
             const n = new Notification(`SOS Emergency: ${inc.device_id}`, {
@@ -119,18 +116,104 @@ export function useSosNotifications(incidents: SosIncident[], hikers: Hiker[]) {
   }, [incidents, hikers, sosLoaded]);
 }
 
-/** Subscribes to Firebase Authentication state once on load. */
-export function useOperatorAuth() {
-  useEffect(() => subscribeOperatorAuth(), []);
+/** Subscribes to Firebase Authentication & RBAC role verification once on load. */
+export function useAuthSession() {
+  useEffect(() => subscribeAuthSession(), []);
 }
 
 /**
- * Connects automatically on load using firebase-config.js, with no user interaction.
- * Keeps one RTDB subscription active for `pendaki/`, `sos_active/`, `sos_history/`, and `.info/connected`.
- * Never clears `sos_active` on temporary disconnect.
+ * Protects all URL paths and synchronizes browser history with authentication & role state:
+ * - Unauthenticated visitors attempting any URL are redirected to `/login`.
+ * - Unauthorized signed-in users are redirected to `/access-denied`.
+ * - Authorized users are synced to their allowed section URL (non-admins blocked from `/admin/users`).
  */
-export function useFirebaseStream() {
+export function useRouteGuard() {
+  const status = useAuth((s) => s.status);
+  const role = useAuth((s) => s.user?.role ?? null);
+  const view = useUi((s) => s.view);
+  const setView = useUi((s) => s.setView);
+  const intendedViewRef = useRef<AppView | null>(
+    typeof window !== 'undefined' ? viewFromPathname(window.location.pathname) : null,
+  );
+
+  // Sync URL on auth state or active view changes
   useEffect(() => {
+    if (typeof window === 'undefined' || status === 'loading') return;
+
+    if (status === 'unauthenticated') {
+      const requested = viewFromPathname(window.location.pathname);
+      if (requested) intendedViewRef.current = requested;
+      if (window.location.pathname !== '/login') {
+        window.history.replaceState(null, '', '/login');
+      }
+      return;
+    }
+
+    if (status === 'unauthorized') {
+      if (window.location.pathname !== '/access-denied') {
+        window.history.replaceState(null, '', '/access-denied');
+      }
+      return;
+    }
+
+    // status === 'authorized'
+    if (intendedViewRef.current) {
+      const target = canAccessView(intendedViewRef.current, role) ? intendedViewRef.current : 'overview';
+      intendedViewRef.current = null;
+      if (target !== view) {
+        setView(target);
+        return;
+      }
+    }
+
+    if (!canAccessView(view, role)) {
+      setView('overview');
+      return;
+    }
+
+    const desiredPath = VIEW_PATHS[view];
+    if (window.location.pathname !== desiredPath) {
+      window.history.replaceState(null, '', desiredPath);
+    }
+  }, [status, role, view, setView]);
+
+  // Handle browser back/forward navigation safely
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onPopState = () => {
+      const auth = useAuth.getState();
+      if (auth.status === 'unauthenticated') {
+        if (window.location.pathname !== '/login') window.history.replaceState(null, '', '/login');
+        return;
+      }
+      if (auth.status === 'unauthorized') {
+        if (window.location.pathname !== '/access-denied') window.history.replaceState(null, '', '/access-denied');
+        return;
+      }
+      if (auth.status === 'authorized') {
+        const parsed = viewFromPathname(window.location.pathname) ?? 'overview';
+        const allowed = canAccessView(parsed, auth.user?.role) ? parsed : 'overview';
+        useUi.getState().setView(allowed);
+      }
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+}
+
+/**
+ * Registers Firebase RTDB listeners ONLY after the user is authenticated AND authorized.
+ * Tears down all listeners and clears local sensitive state when authorization ends (logout / revocation).
+ */
+export function useFirebaseStream(enabled: boolean) {
+  useEffect(() => {
+    if (!enabled) {
+      disposeRealtimeListeners();
+      useTelemetry.getState().reset();
+      useSos.getState().reset();
+      return;
+    }
+
     const telemetry = useTelemetry.getState();
     if (!FIREBASE_STATUS.config) {
       telemetry.setConnectionState('error');
@@ -157,13 +240,12 @@ export function useFirebaseStream() {
           if (state.connectionState !== 'connected') state.setConnectionState('connected');
           state.ingestEvent(entry);
 
-          // Safety backup latch: if a new SOS packet arrives in `pendaki/` and an authorized
-          // operator is signed in (or rules allow), ensure a persistent `sos_active` incident exists.
+          // Backup latch: only ADMIN / OPERATOR roles may create/update sos_active from telemetry.
           // NEVER clears or resolves on NORMAL status.
           if (entry.packet && entry.packet.status === 'SOS') {
-            const sosState = useSos.getState();
-            const isOperator = Boolean(useAuth.getState().user);
-            if (isOperator || !FIREBASE_STATUS.authReady) {
+            const role = useAuth.getState().user?.role;
+            if (canManageEmergencies(role)) {
+              const sosState = useSos.getState();
               const lastResolved = sosState.history
                 .filter((h) => h.device_id === entry.packet!.id)
                 .reduce((max, h) => Math.max(max, h.resolved_at), 0);
@@ -198,9 +280,9 @@ export function useFirebaseStream() {
     }
     return () => {
       unsubscribe?.();
-      disposeFirebase();
+      disposeRealtimeListeners();
     };
-  }, []);
+  }, [enabled]);
 }
 
 /** Plays the siren while an ACTIVE (unacknowledged) persistent SOS incident exists and audio is not muted. */

@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { CheckCircle2, Crosshair, ExternalLink, Lock, ShieldAlert, ShieldCheck, WifiOff } from 'lucide-react';
+import { CheckCircle2, Crosshair, Eye, ExternalLink, ShieldAlert, ShieldCheck, WifiOff } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../store/auth';
 import { useConfig } from '../store/config';
@@ -7,6 +7,7 @@ import { useSos } from '../store/sos';
 import { useTelemetry } from '../store/telemetry';
 import { useUi } from '../store/ui';
 import { useNow } from '../hooks';
+import { canManageEmergencies } from '../lib/rbac';
 import { acknowledgeSosIncident } from '../lib/sosService';
 import { formatElapsed } from '../lib/format';
 import type { Hiker, SosIncident } from '../types';
@@ -28,7 +29,6 @@ export function EmergencyBanner({ incidents, hikers }: { incidents: SosIncident[
   const connectionState = useTelemetry((s) => s.connectionState);
   const focusHiker = useUi((s) => s.focusHiker);
   const openRescueModal = useUi((s) => s.openRescueModal);
-  const openAuthModal = useUi((s) => s.openAuthModal);
   const setView = useUi((s) => s.setView);
 
   const first = incidents[0];
@@ -36,14 +36,10 @@ export function EmergencyBanner({ incidents, hikers }: { incidents: SosIncident[
   const isUnacked = first?.state === 'ACTIVE';
   const busy = first ? Boolean(pending[first.device_id]) : false;
   const disconnected = connectionState !== 'connected';
+  const canRespond = canManageEmergencies(operator?.role);
 
   const handleAck = async () => {
-    if (!first) return;
-    if (!operator) {
-      toast.info('Basecamp operator sign-in required to acknowledge an SOS alert.');
-      openAuthModal();
-      return;
-    }
+    if (!first || !canRespond) return;
     try {
       await acknowledgeSosIncident(first, operator);
       toast.success(`SOS acknowledged for ${first.device_id}`, {
@@ -124,32 +120,33 @@ export function EmergencyBanner({ incidents, hikers }: { incidents: SosIncident[
                 <ExternalLink size={12} />
                 Alerts ({incidents.length})
               </button>
-              {isUnacked && (
-                <button
-                  disabled={busy || disconnected}
-                  onClick={handleAck}
-                  className="inline-flex h-7 items-center gap-1 rounded-ctl bg-white px-2.5 text-[11.5px] font-bold text-crimson transition-colors hover:bg-crimson-tint disabled:opacity-60"
-                >
-                  {!operator && <Lock size={11} />}
-                  <CheckCircle2 size={13} />
-                  {busy ? 'Saving…' : 'Acknowledge'}
-                </button>
+              {canRespond ? (
+                <>
+                  {isUnacked && (
+                    <button
+                      disabled={busy || disconnected}
+                      onClick={handleAck}
+                      className="inline-flex h-7 items-center gap-1 rounded-ctl bg-white px-2.5 text-[11.5px] font-bold text-crimson transition-colors hover:bg-crimson-tint disabled:opacity-60"
+                    >
+                      <CheckCircle2 size={13} />
+                      {busy ? 'Saving…' : 'Acknowledge'}
+                    </button>
+                  )}
+                  <button
+                    disabled={busy}
+                    onClick={() => openRescueModal(first.device_id)}
+                    className="inline-flex h-7 items-center gap-1 rounded-ctl border border-white bg-forest px-2.5 text-[11.5px] font-bold text-white transition-colors hover:bg-forest-hover disabled:opacity-60"
+                  >
+                    <ShieldCheck size={13} />
+                    Mark as Rescued
+                  </button>
+                </>
+              ) : (
+                <span className="inline-flex h-7 items-center gap-1 rounded-ctl border border-white/40 bg-white/10 px-2.5 text-[11px] font-semibold">
+                  <Eye size={12} />
+                  Viewer (Read-Only)
+                </span>
               )}
-              <button
-                disabled={busy}
-                onClick={() => {
-                  if (!operator) {
-                    toast.info('Sign in as an authorized Basecamp operator to confirm rescue.');
-                    openAuthModal();
-                    return;
-                  }
-                  openRescueModal(first.device_id);
-                }}
-                className="inline-flex h-7 items-center gap-1 rounded-ctl border border-white bg-forest px-2.5 text-[11.5px] font-bold text-white transition-colors hover:bg-forest-hover disabled:opacity-60"
-              >
-                {!operator ? <Lock size={11} /> : <ShieldCheck size={13} />}
-                Mark as Rescued
-              </button>
             </div>
           </div>
         </motion.div>

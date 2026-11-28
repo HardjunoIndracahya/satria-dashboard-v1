@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Check, CheckCircle2, ChevronDown, Copy, Download, ExternalLink, Lock, Phone, ShieldAlert, ShieldCheck, X } from 'lucide-react';
+import { Check, CheckCircle2, ChevronDown, Copy, Download, ExternalLink, Eye, Phone, ShieldAlert, ShieldCheck, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { AnimatedNumber, IncidentStatePill, LinkPill, SignalBars, StatusPill } from '../ui';
 import { useAuth } from '../../store/auth';
@@ -9,6 +9,7 @@ import { useSos } from '../../store/sos';
 import { useTelemetry } from '../../store/telemetry';
 import { useUi } from '../../store/ui';
 import { useNow } from '../../hooks';
+import { canManageEmergencies } from '../../lib/rbac';
 import { acknowledgeSosIncident } from '../../lib/sosService';
 import { HYPOTHERMIA_C, WEAK_RSSI, formatAgo, formatDateTime, formatDuration, nearestNode } from '../../lib/format';
 import { bearingDeg, distanceM, formatBearing, formatCoord, formatDelta, formatDistance, googleMapsUrl } from '../../lib/geo';
@@ -94,16 +95,11 @@ export function Inspector({ hiker }: { hiker: Hiker | null }) {
   const setScrub = useUi((s) => s.setScrub);
   const setView = useUi((s) => s.setView);
   const openRescueModal = useUi((s) => s.openRescueModal);
-  const openAuthModal = useUi((s) => s.openAuthModal);
   const [copied, setCopied] = useState(false);
+  const canRespond = canManageEmergencies(operator?.role);
 
   const handleAck = async () => {
-    if (!sosIncident) return;
-    if (!operator) {
-      toast.info('Basecamp operator sign-in required to acknowledge SOS.');
-      openAuthModal();
-      return;
-    }
+    if (!sosIncident || !canRespond || !operator) return;
     try {
       await acknowledgeSosIncident(sosIncident, operator);
       toast.success(`SOS acknowledged for ${sosIncident.device_id}`, {
@@ -131,7 +127,7 @@ export function Inspector({ hiker }: { hiker: Hiker | null }) {
             pairing={pairing}
             sosIncident={sosIncident}
             busy={Boolean(pending)}
-            hasOperator={Boolean(operator)}
+            canRespond={canRespond}
             disconnected={connectionState !== 'connected'}
             nodes={nodes}
             scrubIndex={scrubIndex}
@@ -149,14 +145,7 @@ export function Inspector({ hiker }: { hiker: Hiker | null }) {
             }}
             onClose={() => select(null)}
             onAck={handleAck}
-            onResolve={() => {
-              if (!operator) {
-                toast.info('Sign in as an authorized Basecamp operator to confirm rescue.');
-                openAuthModal();
-                return;
-              }
-              openRescueModal(hiker.id);
-            }}
+            onResolve={() => canRespond && openRescueModal(hiker.id)}
             onLive={() => setScrub(null)}
             onSetupNodes={() => setView('nodes')}
           />
@@ -171,7 +160,7 @@ function InspectorBody({
   pairing,
   sosIncident,
   busy,
-  hasOperator,
+  canRespond,
   disconnected,
   nodes,
   scrubIndex,
@@ -187,7 +176,7 @@ function InspectorBody({
   pairing?: ReturnType<typeof useConfig.getState>['pairings'][string];
   sosIncident?: SosIncident;
   busy: boolean;
-  hasOperator: boolean;
+  canRespond: boolean;
   disconnected: boolean;
   nodes: ReturnType<typeof useConfig.getState>['nodes'];
   scrubIndex: number | null;
@@ -354,18 +343,23 @@ function InspectorBody({
       </div>
 
       <div className="grid grid-cols-2 gap-2 border-t border-line p-3">
-        {sosIncident && sosIncident.state === 'ACTIVE' && (
+        {sosIncident && canRespond && sosIncident.state === 'ACTIVE' && (
           <button className="btn btn-danger col-span-2 h-9" disabled={busy || disconnected} onClick={onAck}>
-            {!hasOperator && <Lock size={13} />}
             <CheckCircle2 size={14} />
             Acknowledge SOS
           </button>
         )}
-        {sosIncident && (
+        {sosIncident && canRespond && (
           <button className="btn btn-primary col-span-2 h-9" disabled={busy} onClick={onResolve}>
-            {!hasOperator ? <Lock size={13} /> : <ShieldCheck size={14} />}
+            <ShieldCheck size={14} />
             Mark as Rescued
           </button>
+        )}
+        {sosIncident && !canRespond && (
+          <div className="col-span-2 flex items-center justify-center gap-1.5 rounded-ctl border border-line bg-canvas px-3 py-1.5 text-[11.5px] font-semibold text-ink-2">
+            <Eye size={13} />
+            Viewer (Read-Only) — SOS actions restricted
+          </div>
         )}
         <button className="btn" onClick={onCopy}>
           {copied ? <Check size={14} className="text-forest" /> : <Copy size={14} />}
