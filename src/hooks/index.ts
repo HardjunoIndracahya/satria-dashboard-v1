@@ -61,14 +61,29 @@ export function useFirebaseStream() {
     telemetry.reset();
     telemetry.setConnectionState('connecting');
     let unsubscribe: (() => void) | undefined;
+    let everConnected = false;
     try {
       unsubscribe = subscribeFirebaseStream(FIREBASE_STATUS.config, DATABASE_ROOT, {
         onConnection: (connected) => {
-          useTelemetry.getState().setConnectionState(connected ? 'connected' : 'disconnected');
-          if (connected) useTelemetry.getState().setError(undefined);
+          const state = useTelemetry.getState();
+          if (connected) {
+            everConnected = true;
+            if (!state.error) state.setConnectionState('connected');
+          } else if (everConnected && !state.error) {
+            state.setConnectionState('disconnected');
+          }
         },
-        onPacket: (entry) => useTelemetry.getState().ingestEvent(entry),
-        onDeviceCount: (count) => useTelemetry.getState().setEmptyRoot(count === 0),
+        onPacket: (entry) => {
+          const state = useTelemetry.getState();
+          if (state.connectionState !== 'connected') state.setConnectionState('connected');
+          state.ingestEvent(entry);
+        },
+        onDeviceCount: (count) => {
+          const state = useTelemetry.getState();
+          state.setEmptyRoot(count === 0);
+          if (state.error) state.setError(undefined);
+          if (state.connectionState !== 'connected') state.setConnectionState('connected');
+        },
         onError: (error) => {
           useTelemetry.getState().setConnectionState('error');
           useTelemetry.getState().setError(error.message);

@@ -4,9 +4,6 @@ import { EmergencyBanner } from './components/EmergencyBanner';
 import { PairingModal } from './components/PairingModal';
 import { OverviewView } from './views/OverviewView';
 import { DashboardView } from './views/DashboardView';
-import { OverviewView } from './views/OverviewView';
-import { HikersView } from './views/HikersView';
-import { AnalyticsView } from './views/AnalyticsView';
 import { HikersView } from './views/HikersView';
 import { AnalyticsView } from './views/AnalyticsView';
 import { RelayNodesView } from './views/RelayNodesView';
@@ -22,7 +19,6 @@ export default function App() {
   useFirebaseStream();
   useSosNotifications(hikers);
   useAlarm(unacked.length);
-  useSosNotifications(hikers);
   useHotkeys();
 
   return (
@@ -31,10 +27,7 @@ export default function App() {
       <EmergencyBanner unacked={unacked} />
       <main className="flex min-h-0 flex-1 flex-col">
         {view === 'overview' && <OverviewView hikers={hikers} />}
-        {view === 'overview' && <OverviewView hikers={hikers} />}
         {view === 'dashboard' && <DashboardView hikers={hikers} />}
-        {view === 'hikers' && <HikersView hikers={hikers} />}
-        {view === 'analytics' && <AnalyticsView hikers={hikers} />}
         {view === 'hikers' && <HikersView hikers={hikers} />}
         {view === 'analytics' && <AnalyticsView hikers={hikers} />}
         {view === 'nodes' && <RelayNodesView />}
@@ -60,4 +53,3 @@ export default function App() {
     </div>
   );
 }
-

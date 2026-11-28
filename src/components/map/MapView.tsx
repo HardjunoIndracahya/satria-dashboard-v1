@@ -82,7 +82,7 @@ interface MeasurePt {
   ele?: number;
 }
 
-export function MapView({ hikers }: { hikers: Hiker[] }) {
+export function MapView({ hikers, totalHikers = hikers.length }: { hikers: Hiker[]; totalHikers?: number }) {
   const mapRef = useRef<MapRef>(null);
   const [loaded, setLoaded] = useState(false);
   const [bearing, setBearing] = useState(0);
@@ -461,7 +461,12 @@ export function MapView({ hikers }: { hikers: Hiker[] }) {
       )}
       {!showEmptyNotice && hikers.length === 0 && (
         <div className="pointer-events-none absolute bottom-10 left-1/2 z-10 max-w-[420px] -translate-x-1/2 rounded-panel border border-line bg-surface/95 px-3.5 py-2 text-center text-[12px] text-ink-2 shadow-float">
-          {errorText ?? (emptyRoot ? 'Connected — no hiker data under the database node yet' : 'Connected — waiting for hikers with a valid GPS fix')}
+          {errorText ??
+            (totalHikers > 0
+              ? 'No hikers match the current filter'
+              : emptyRoot
+                ? 'Connected — no hiker data under the database node yet'
+                : 'Connected — waiting for hikers with a valid GPS fix')}
         </div>
       )}
     </div>

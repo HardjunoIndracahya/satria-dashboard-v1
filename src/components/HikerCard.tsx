@@ -64,10 +64,10 @@ function HikerCardBase({
       </div>
 
       <div className="mt-0.5 flex items-center gap-1.5 text-[11.5px] text-ink-muted">
-        <span>Updated</span><span className="num text-ink-2">{formatClock(p.ts)}</span><span>·</span>
+        <span>Updated</span>
+        <span className="num text-ink-2">{formatClock(p.ts)}</span>
+        <span>·</span>
         <span className="num text-ink-2">{formatAgo(hiker.silentMs)}</span>
-        <span className="num text-ink-muted">· {formatClock(p.ts)}</span>
-        <span className="num text-ink-muted">· {formatClock(p.ts)}</span>
         {isSos && acked && <span className="rounded-chip border border-crimson/30 bg-surface px-1 text-[10px] font-bold text-crimson">ACK</span>}
       </div>
 
