@@ -1,5 +1,6 @@
 export type PacketStatus = 'NORMAL' | 'SOS';
 export type HikerStatus = PacketStatus | 'OFFLINE';
+export type LinkState = 'LIVE' | 'DELAYED' | 'OFFLINE';
 
 export interface Packet {
   id: string;
@@ -58,7 +59,10 @@ export interface Hiker {
   id: string;
   latest: Packet;
   track: Packet[];
-  status: HikerStatus;
+  /** Condition reported by the device (NORMAL / SOS). Never overwritten by connection state. */
+  status: PacketStatus;
+  /** Connection state derived from `updated_at` age: LIVE / DELAYED / OFFLINE. */
+  link: LinkState;
   /** ms since the latest packet */
   silentMs: number;
   /** Identifies the current SOS episode (for acknowledgement), only when status === 'SOS' */
@@ -67,5 +71,5 @@ export interface Hiker {
 }
 
 export type BasemapId = 'topo' | 'satellite' | 'osm';
-export type AppView = 'dashboard' | 'nodes' | 'log';
-export type SidebarFilter = 'all' | 'sos' | 'normal' | 'offline';
+export type AppView = 'overview' | 'dashboard' | 'hikers' | 'analytics' | 'nodes' | 'log';
+export type SidebarFilter = 'all' | 'live' | 'delayed' | 'offline' | 'sos';

@@ -4,7 +4,7 @@ import { useConfig } from '../store/config';
 import { useTelemetry } from '../store/telemetry';
 import { useUi } from '../store/ui';
 import { deriveHikers } from '../lib/format';
-import { disposeFirebase, getEnvironmentFirebaseConfig } from '../lib/firebase';
+import { DATABASE_ROOT, FIREBASE_STATUS, LIVE_WITHIN_MS, OFFLINE_AFTER_MS, disposeFirebase } from '../lib/firebase';
 import { subscribeFirebaseStream } from '../lib/firebaseStream';
 import { startAlarm, stopAlarm, unlockAudio, isAudioRunning } from '../lib/audio';
 import type { Hiker } from '../types';
@@ -20,9 +20,8 @@ export function useNow(intervalMs = 1000): number {
 
 export function useHikers(): Hiker[] {
   const tracks = useTelemetry((s) => s.tracks);
-  const offlineMin = useConfig((s) => s.offlineAfterMin);
   const now = useNow(5000);
-  return useMemo(() => deriveHikers(tracks, now, offlineMin * 60_000), [tracks, offlineMin, now]);
+  return useMemo(() => deriveHikers(tracks, now, LIVE_WITHIN_MS, OFFLINE_AFTER_MS), [tracks, now]);
 }
 
 /** Hikers whose current SOS episode has not been acknowledged. */
@@ -31,32 +30,45 @@ export function useUnackedSos(hikers: Hiker[]): Hiker[] {
   return useMemo(() => hikers.filter((h) => h.status === 'SOS' && h.sosKey && !acks[h.sosKey]), [hikers, acks]);
 }
 
-/** Keeps one RTDB subscription active for the selected runtime or environment config. */
-export function useFirebaseStream() {
-  const runtimeConfig = useConfig((s) => s.firebaseConfig);
-  const databaseRoot = useConfig((s) => s.databaseRoot);
-  const connectionDisabled = useConfig((s) => s.connectionDisabled);
-  const environmentConfig = useMemo(() => getEnvironmentFirebaseConfig(), []);
-  const config = runtimeConfig ?? environmentConfig;
-
+/** One visible notification per SOS episode (never repeated for unchanged data). */
+export function useSosNotifications(hikers: Hiker[]) {
+  const seen = useRef(new Set<string>());
   useEffect(() => {
-    if (!config || connectionDisabled) {
-      disposeFirebase();
-      useTelemetry.getState().reset();
+    for (const h of hikers) {
+      if (h.status !== 'SOS' || !h.sosKey || seen.current.has(h.sosKey)) continue;
+      seen.current.add(h.sosKey);
+      toast.error(`SOS from ${h.id}`, {
+        description: `${h.latest.lat.toFixed(5)}, ${h.latest.lon.toFixed(5)} / ${h.latest.alt.toFixed(0)} m`,
+        duration: 12000,
+        action: { label: 'Locate', onClick: () => useUi.getState().focusHiker(h.id) },
+      });
+    }
+  }, [hikers]);
+}
+
+/**
+ * Connects automatically on load using firebase-config.js, with no user interaction.
+ * Exactly one RTDB subscription is kept for the lifetime of the app.
+ */
+export function useFirebaseStream() {
+  useEffect(() => {
+    const telemetry = useTelemetry.getState();
+    if (!FIREBASE_STATUS.config) {
+      telemetry.setConnectionState('error');
+      telemetry.setError(FIREBASE_STATUS.error);
       return;
     }
-
-    const telemetry = useTelemetry.getState();
     telemetry.reset();
     telemetry.setConnectionState('connecting');
     let unsubscribe: (() => void) | undefined;
     try {
-      unsubscribe = subscribeFirebaseStream(config, databaseRoot, {
+      unsubscribe = subscribeFirebaseStream(FIREBASE_STATUS.config, DATABASE_ROOT, {
         onConnection: (connected) => {
           useTelemetry.getState().setConnectionState(connected ? 'connected' : 'disconnected');
           if (connected) useTelemetry.getState().setError(undefined);
         },
         onPacket: (entry) => useTelemetry.getState().ingestEvent(entry),
+        onDeviceCount: (count) => useTelemetry.getState().setEmptyRoot(count === 0),
         onError: (error) => {
           useTelemetry.getState().setConnectionState('error');
           useTelemetry.getState().setError(error.message);
@@ -65,15 +77,14 @@ export function useFirebaseStream() {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Firebase initialization failed';
       useTelemetry.getState().setConnectionState('error');
-      useTelemetry.getState().setError(message);
+      useTelemetry.getState().setError(`Firebase initialization failed: ${message}. Check firebase-config.js.`);
     }
     return () => {
       unsubscribe?.();
       disposeFirebase();
     };
-  }, [config, databaseRoot, connectionDisabled]);
+  }, []);
 }
-
 /** Plays the siren while an unacknowledged SOS exists and audio is not muted. */
 export function useAlarm(unacked: number) {
   const muted = useConfig((s) => s.muted);
@@ -143,3 +154,4 @@ export function useHotkeys() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 }
+

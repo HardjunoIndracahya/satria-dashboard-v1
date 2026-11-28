@@ -3,7 +3,6 @@ import { Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { Segmented } from '../components/ui';
 import { useTelemetry } from '../store/telemetry';
-import { useUi } from '../store/ui';
 import { cleanedCsv, download } from '../lib/export';
 import { formatDateTime } from '../lib/format';
 import type { LogEntry } from '../types';
@@ -23,7 +22,6 @@ function Tag({ e }: { e: LogEntry }) {
 export function SystemLogView() {
   const entries = useTelemetry((s) => s.entries);
   const { total, valid, sos, corrupt } = useTelemetry();
-  const openConnect = useUi((s) => s.openConnect);
   const [filter, setFilter] = useState<LogFilter>('all');
 
   const rows = useMemo(() => {
@@ -96,9 +94,6 @@ export function SystemLogView() {
             <p className="max-w-[360px] text-[12.5px] leading-relaxed text-ink-2">
               Every packet received from Firebase is audited here as valid or quarantined noise, with the exact rejection reason.
             </p>
-            <button className="btn btn-primary mt-2" onClick={() => openConnect('firebase')}>
-              Connect Firebase
-            </button>
           </div>
         ) : (
           <div ref={scroller} onScroll={(e) => setTop(e.currentTarget.scrollTop)} className="scroll-thin min-h-0 flex-1 overflow-auto">
@@ -156,3 +151,5 @@ export function SystemLogView() {
     </div>
   );
 }
+
+

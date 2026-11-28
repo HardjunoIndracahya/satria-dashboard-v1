@@ -1,7 +1,7 @@
 import { useEffect, useId, type ReactNode } from 'react';
 import { AnimatePresence, animate, motion, useMotionValue, useTransform } from 'framer-motion';
 import { X } from 'lucide-react';
-import type { HikerStatus } from '../types';
+import type { HikerStatus, LinkState } from '../types';
 import { signalLevel } from '../lib/format';
 
 /* ------------------------------- Brand mark ------------------------------- */
@@ -28,6 +28,26 @@ export function StatusPill({ status, className = '' }: { status: HikerStatus; cl
       className={`inline-flex h-[20px] items-center rounded-chip border px-1.5 text-[10.5px] font-bold tracking-[0.05em] ${PILL[status]} ${className}`}
     >
       {status}
+    </span>
+  );
+}
+
+/** Connection state pill (LIVE / DELAYED / OFFLINE) — separate from the NORMAL / SOS condition pill. */
+const LINK_PILL: Record<LinkState, string> = {
+  LIVE: 'bg-forest-tint text-forest border-forest/25',
+  DELAYED: 'bg-amber-tint text-amber-ink border-amber/40',
+  OFFLINE: 'bg-slate2-tint text-ink-2 border-line-strong',
+};
+
+export function LinkPill({ link, className = '' }: { link: LinkState; className?: string }) {
+  const dot = link === 'LIVE' ? 'bg-forest' : link === 'DELAYED' ? 'bg-amber' : 'bg-slate-400';
+  return (
+    <span
+      title={`Connection: ${link}`}
+      className={`inline-flex h-[20px] items-center gap-1 rounded-chip border px-1.5 text-[10.5px] font-bold tracking-[0.05em] ${LINK_PILL[link]} ${className}`}
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
+      {link}
     </span>
   );
 }

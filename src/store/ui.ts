@@ -1,8 +1,6 @@
 import { create } from 'zustand';
 import type { AppView, BasemapId, SidebarFilter } from '../types';
 
-export type ConnectTab = 'firebase' | 'guide';
-
 interface UiState {
   view: AppView;
   selectedId: string | null;
@@ -18,8 +16,6 @@ interface UiState {
   dockOpen: boolean;
   sidebarOpen: boolean;
   scrubIndex: number | null;
-  connectOpen: boolean;
-  connectTab: ConnectTab;
   pairingId: string | null;
 
   setView: (v: AppView) => void;
@@ -35,8 +31,6 @@ interface UiState {
   toggleDock: () => void;
   setSidebarOpen: (o: boolean) => void;
   setScrub: (i: number | null) => void;
-  openConnect: (tab?: ConnectTab) => void;
-  closeConnect: () => void;
   openPairing: (id: string) => void;
   closePairing: () => void;
   /** Esc behaviour: closes the top-most layer. Returns true if something was closed. */
@@ -44,7 +38,7 @@ interface UiState {
 }
 
 export const useUi = create<UiState>((set, get) => ({
-  view: 'dashboard',
+  view: 'overview',
   selectedId: null,
   focusNonce: 0,
   filter: 'all',
@@ -55,10 +49,8 @@ export const useUi = create<UiState>((set, get) => ({
   measure: false,
   showVector: true,
   dockOpen: true,
-  sidebarOpen: true,
+  sidebarOpen: typeof window === 'undefined' || window.innerWidth >= 768,
   scrubIndex: null,
-  connectOpen: false,
-  connectTab: 'firebase',
   pairingId: null,
 
   setView: (view) => set({ view }),
@@ -74,18 +66,12 @@ export const useUi = create<UiState>((set, get) => ({
   toggleDock: () => set((s) => ({ dockOpen: !s.dockOpen })),
   setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
   setScrub: (scrubIndex) => set({ scrubIndex }),
-  openConnect: (tab) => set((s) => ({ connectOpen: true, connectTab: tab ?? s.connectTab })),
-  closeConnect: () => set({ connectOpen: false }),
   openPairing: (pairingId) => set({ pairingId }),
   closePairing: () => set({ pairingId: null }),
   dismiss: () => {
     const s = get();
     if (s.pairingId) {
       set({ pairingId: null });
-      return true;
-    }
-    if (s.connectOpen) {
-      set({ connectOpen: false });
       return true;
     }
     if (s.measure) {
@@ -99,3 +85,5 @@ export const useUi = create<UiState>((set, get) => ({
     return false;
   },
 }));
+
+

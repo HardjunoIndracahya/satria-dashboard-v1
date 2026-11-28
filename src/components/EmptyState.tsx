@@ -1,5 +1,4 @@
 import { Database } from 'lucide-react';
-import { useUi } from '../store/ui';
 
 /** Topographic contour motif — structural, not data. */
 function Contours() {
@@ -18,31 +17,23 @@ function Contours() {
   );
 }
 
-export function EmptyState({ compact = false }: { compact?: boolean }) {
-  const openConnect = useUi((s) => s.openConnect);
+/** Shown when firebase-config.js is missing or invalid. */
+export function EmptyState({ compact = false, message }: { compact?: boolean; message?: string }) {
   return (
     <div className="flex flex-col items-center px-5 pb-6 pt-8 text-center">
       <Contours />
-      <h3 className="mt-3 text-[14px] font-bold">No telemetry source</h3>
-      <p className="mt-1 max-w-[240px] text-[12.5px] leading-relaxed text-ink-2">
-        RAKSA only displays packets received from your Basecamp. Connect its Firebase Realtime Database to begin.
+      <h3 className="mt-3 text-[14px] font-bold">Firebase not configured</h3>
+      <p className="mt-1 max-w-[260px] text-[12.5px] leading-relaxed text-ink-2">
+        {message ?? 'Set your Firebase project values in firebase-config.js. The dashboard connects automatically.'}
       </p>
-      <div className="mt-4 flex w-full flex-col gap-2">
-        <button className="btn btn-primary h-9" onClick={() => openConnect('firebase')}>
-          <Database size={15} />
-          Connect Firebase RTDB
-        </button>
-      </div>
       {!compact && (
         <div className="mt-5 w-full rounded-ctl border border-dashed border-line-strong bg-canvas/60 p-3 text-left">
-          <div className="label mb-1.5">Accepted packet formats</div>
+          <div className="label mb-1.5 flex items-center gap-1.5">
+            <Database size={12} /> Expected data
+          </div>
           <p className="text-[11.5px] leading-relaxed text-ink-2">
-            Structured JSON at <span className="num text-[11px] text-ink">/hikers/{'{deviceId}'}</span> with ID, coordinates, MDPL, temperature, status and timestamp.
+            One child per hiker at <span className="num text-[11px] text-ink">/pendaki/{'{deviceId}'}</span> with device_id, latitude, longitude, altitude, temperature, status, rssi, snr and updated_at.
           </p>
-          <p className="mt-1.5 text-[11.5px] leading-relaxed text-ink-2">Raw LoRa payload strings are also accepted:</p>
-          <code className="num mt-1 block break-all rounded-chip border border-line bg-surface px-2 py-1 text-[10.5px] text-ink-2">
-            ID|lat|lon|mdpl|temp|STATUS[|rssi|snr]
-          </code>
         </div>
       )}
     </div>

@@ -14,6 +14,7 @@ import type { Feature, FeatureCollection, LineString, Point } from 'geojson';
 import { HikerMarker, NodeMarker, PillMarker, ScrubMarker } from './markers';
 import { MapToolbar } from './MapToolbar';
 import { Inspector } from './Inspector';
+import { HikerPopup, MapLegend } from './MapExtras';
 import { useConfig } from '../../store/config';
 import { useTelemetry } from '../../store/telemetry';
 import { useUi } from '../../store/ui';
@@ -115,6 +116,8 @@ export function MapView({ hikers }: { hikers: Hiker[] }) {
   terrainRef.current = terrain3d;
 
   const selected = useMemo(() => hikers.find((h) => h.id === selectedId) ?? null, [hikers, selectedId]);
+  const [popupId, setPopupId] = useState<string | null>(null);
+  const popupHiker = useMemo(() => hikers.find((h) => h.id === popupId) ?? null, [hikers, popupId]);
   const activeNodes = useMemo(() => nodes.filter((n) => n.active), [nodes]);
 
   /* ----------------------------- geo json data ----------------------------- */
@@ -311,6 +314,8 @@ export function MapView({ hikers }: { hikers: Hiker[] }) {
   );
 
   const showEmptyNotice = connectionState !== 'connected' && !hasEntries && hikers.length === 0;
+  const emptyRoot = useTelemetry((s) => s.emptyRoot);
+  const errorText = useTelemetry((s) => s.error);
 
   return (
     <div className="relative h-full w-full">
@@ -396,8 +401,17 @@ export function MapView({ hikers }: { hikers: Hiker[] }) {
 
         {/* hikers */}
         {hikers.map((h) => (
-          <HikerMarker key={h.id} hiker={h} selected={h.id === selectedId} onSelect={() => useUi.getState().focusHiker(h.id)} />
+          <HikerMarker
+            key={h.id}
+            hiker={h}
+            selected={h.id === selectedId}
+            onSelect={() => {
+              useUi.getState().focusHiker(h.id);
+              setPopupId(h.id);
+            }}
+          />
         ))}
+        {popupHiker && <HikerPopup hiker={popupHiker} onClose={() => setPopupId(null)} />}
       </Map>
 
       <MapToolbar
@@ -416,6 +430,7 @@ export function MapView({ hikers }: { hikers: Hiker[] }) {
       />
 
       <Inspector hiker={selected} />
+      <MapLegend hikers={hikers} onFocus={(id) => { useUi.getState().focusHiker(id); setPopupId(id); }} />
 
       {measure && (
         <div className="absolute bottom-10 left-1/2 z-20 flex -translate-x-1/2 items-center gap-3 rounded-panel border border-line bg-surface px-3.5 py-2 shadow-float">
@@ -440,8 +455,13 @@ export function MapView({ hikers }: { hikers: Hiker[] }) {
       )}
 
       {showEmptyNotice && (
-        <div className="pointer-events-none absolute bottom-10 left-1/2 z-10 -translate-x-1/2 rounded-panel border border-line bg-surface/95 px-3.5 py-2 text-[12px] text-ink-2 shadow-float">
-          No telemetry source connected — basemap only
+        <div className="pointer-events-none absolute bottom-10 left-1/2 z-10 max-w-[420px] -translate-x-1/2 rounded-panel border border-line bg-surface/95 px-3.5 py-2 text-center text-[12px] text-ink-2 shadow-float">
+          {errorText ?? 'No telemetry source connected — basemap only'}
+        </div>
+      )}
+      {!showEmptyNotice && hikers.length === 0 && (
+        <div className="pointer-events-none absolute bottom-10 left-1/2 z-10 max-w-[420px] -translate-x-1/2 rounded-panel border border-line bg-surface/95 px-3.5 py-2 text-center text-[12px] text-ink-2 shadow-float">
+          {errorText ?? (emptyRoot ? 'Connected — no hiker data under the database node yet' : 'Connected — waiting for hikers with a valid GPS fix')}
         </div>
       )}
     </div>

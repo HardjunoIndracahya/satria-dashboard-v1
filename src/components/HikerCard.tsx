@@ -1,7 +1,7 @@
 import { memo } from 'react';
 import { Pencil } from 'lucide-react';
-import { SignalBars, StatusPill } from './ui';
-import { HYPOTHERMIA_C, WEAK_RSSI, formatAgo } from '../lib/format';
+import { LinkPill, SignalBars, StatusPill } from './ui';
+import { HYPOTHERMIA_C, WEAK_RSSI, formatAgo, formatClock } from '../lib/format';
 import type { Hiker, Pairing } from '../types';
 
 function HikerCardBase({
@@ -38,7 +38,7 @@ function HikerCardBase({
           onSelect();
         }
       }}
-      className={`group relative cursor-pointer rounded-ctl border p-2.5 pl-3 transition-colors ${border} ${bg} ${hiker.status === 'OFFLINE' ? 'opacity-90' : ''}`}
+      className={`group relative cursor-pointer rounded-ctl border p-2.5 pl-3 transition-colors ${border} ${bg} ${hiker.link === 'OFFLINE' ? 'opacity-90' : ''}`}
     >
       {isSos && <span className="absolute inset-y-0 left-0 w-[3px] rounded-l-ctl bg-crimson" />}
       <div className="flex items-center justify-between gap-2">
@@ -58,13 +58,16 @@ function HikerCardBase({
           >
             <Pencil size={13} />
           </button>
+          <LinkPill link={hiker.link} />
           <StatusPill status={hiker.status} />
         </div>
       </div>
 
       <div className="mt-0.5 flex items-center gap-1.5 text-[11.5px] text-ink-muted">
-        <span>Last seen</span>
+        <span>Updated</span><span className="num text-ink-2">{formatClock(p.ts)}</span><span>·</span>
         <span className="num text-ink-2">{formatAgo(hiker.silentMs)}</span>
+        <span className="num text-ink-muted">· {formatClock(p.ts)}</span>
+        <span className="num text-ink-muted">· {formatClock(p.ts)}</span>
         {isSos && acked && <span className="rounded-chip border border-crimson/30 bg-surface px-1 text-[10px] font-bold text-crimson">ACK</span>}
       </div>
 
@@ -75,6 +78,7 @@ function HikerCardBase({
             <SignalBars rssi={p.rssi} />
             <span className={`num text-[11.5px] ${weak ? 'font-semibold text-amber' : 'text-ink'}`}>{p.rssi !== undefined ? `${p.rssi} dBm` : '—'}</span>
           </div>
+          <div className="num mt-0.5 text-[10.5px] text-ink-muted">SNR {p.snr !== undefined ? `${p.snr} dB` : '—'}</div>
         </div>
         <div>
           <div className="label">Temp</div>
@@ -92,6 +96,20 @@ function HikerCardBase({
           <div className="num mt-0.5 text-[11.5px]">{p.alt.toFixed(0)} m</div>
         </div>
       </div>
+      {selected && (
+        <dl className="num mt-2 grid grid-cols-2 gap-x-3 gap-y-1 border-t border-line pt-2 text-[11px]">
+          <dt className="text-ink-muted">Latitude</dt>
+          <dd className="text-right">{p.lat.toFixed(6)}</dd>
+          <dt className="text-ink-muted">Longitude</dt>
+          <dd className="text-right">{p.lon.toFixed(6)}</dd>
+          <dt className="text-ink-muted">Condition</dt>
+          <dd className="text-right">{hiker.status}</dd>
+          <dt className="text-ink-muted">Connection</dt>
+          <dd className="text-right">{hiker.link}</dd>
+          <dt className="text-ink-muted">Updates seen</dt>
+          <dd className="text-right">{hiker.track.length}</dd>
+        </dl>
+      )}
     </div>
   );
 }

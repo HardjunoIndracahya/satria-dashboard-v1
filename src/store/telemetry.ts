@@ -14,14 +14,21 @@ interface TelemetryState {
   connectionState: FirebaseConnectionState;
   error?: string;
   pulse: number;
+  /** True when the watched Firebase node exists but holds no device children. */
+  emptyRoot: boolean;
 
+  setEmptyRoot: (empty: boolean) => void;
   ingestEvent: (entry: LogEntry) => void;
   setConnectionState: (state: FirebaseConnectionState) => void;
   setError: (error?: string) => void;
   reset: () => void;
 }
 
+const MAX_ENTRIES = 3000;
+const MAX_TRACK = 1000;
+
 const EMPTY = {
+  emptyRoot: false,
   entries: [] as LogEntry[],
   tracks: {} as Record<string, Packet[]>,
   total: 0,
@@ -39,9 +46,9 @@ export const useTelemetry = create<TelemetryState>((set) => ({
 
   ingestEvent: (entry) =>
     set((state) => {
-      const entries = [...state.entries, entry];
+      const entries = [...state.entries, entry].slice(-MAX_ENTRIES);
       const tracks = entry.packet
-        ? { ...state.tracks, [entry.packet.id]: [...(state.tracks[entry.packet.id] ?? []), entry.packet] }
+        ? { ...state.tracks, [entry.packet.id]: [...(state.tracks[entry.packet.id] ?? []), entry.packet].slice(-MAX_TRACK) }
         : state.tracks;
       const valid = state.valid + (entry.packet ? 1 : 0);
       const sos = state.sos + (entry.kind === 'SOS' ? 1 : 0);
@@ -58,6 +65,7 @@ export const useTelemetry = create<TelemetryState>((set) => ({
       };
     }),
   setConnectionState: (connectionState) => set({ connectionState }),
+  setEmptyRoot: (emptyRoot) => set({ emptyRoot }),
   setError: (error) => set({ error }),
   reset: () => set({ ...EMPTY, connectionState: 'disconnected', pulse: 0 }),
 }));

@@ -32,25 +32,23 @@ export function formatElapsed(ms: number): string {
 }
 
 /** Derives per-hiker state from packet tracks. SOS is always listed first. */
-export function deriveHikers(tracks: Record<string, Packet[]>, now: number, offlineMs: number): Hiker[] {
+export function deriveHikers(tracks: Record<string, Packet[]>, now: number, liveMs: number, offlineMs: number): Hiker[] {
   const out: Hiker[] = [];
   for (const [id, track] of Object.entries(tracks)) {
     const latest = track[track.length - 1];
     if (!latest) continue;
     const silentMs = Math.max(0, now - latest.ts);
-    let status: Hiker['status'] = 'NORMAL';
+    const status: Hiker['status'] = latest.status;
+    const link: Hiker['link'] = silentMs <= liveMs ? 'LIVE' : silentMs <= offlineMs ? 'DELAYED' : 'OFFLINE';
     let sosSince: number | undefined;
     let sosKey: string | undefined;
-    if (latest.status === 'SOS') {
-      status = 'SOS';
+    if (status === 'SOS') {
       let i = track.length - 1;
       while (i > 0 && track[i - 1].status === 'SOS') i--;
       sosSince = track[i].ts;
       sosKey = `${id}@${sosSince}`;
-    } else if (silentMs > offlineMs) {
-      status = 'OFFLINE';
     }
-    out.push({ id, latest, track, status, silentMs, sosKey, sosSince });
+    out.push({ id, latest, track, status, link, silentMs, sosKey, sosSince });
   }
   out.sort((a, b) => {
     const sa = a.status === 'SOS' ? 0 : 1;

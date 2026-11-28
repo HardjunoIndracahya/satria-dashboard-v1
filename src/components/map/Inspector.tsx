@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Check, ChevronDown, Copy, Download, ExternalLink, Phone, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { AnimatedNumber, SignalBars, StatusPill } from '../ui';
+import { AnimatedNumber, LinkPill, SignalBars, StatusPill } from '../ui';
 import { useConfig } from '../../store/config';
 import { useUi } from '../../store/ui';
 import { HYPOTHERMIA_C, WEAK_RSSI, formatAgo, formatDateTime, nearestNode } from '../../lib/format';
@@ -184,6 +184,7 @@ function InspectorBody({
             <span className="text-ink-muted">—</span>
             <span className="label !text-[10.5px]">Status:</span>
             <StatusPill status={hiker.status} />
+            <LinkPill link={hiker.link} />
           </div>
           {(pairing?.leader || pairing?.groupSize) && (
             <p className="mt-1 truncate text-[12px] text-ink-2">
@@ -235,6 +236,7 @@ function InspectorBody({
         <div className="flex items-center justify-between text-[11.5px] text-ink-muted">
           <span>
             Last packet <span className="num text-ink-2">{formatAgo(hiker.silentMs)}</span>
+            <span className="num text-ink-muted"> · {formatDateTime(hiker.latest.ts)}</span>
             {hiker.latest.tsSource === 'ingest' && <span title="No packet timestamp — using time first received"> *</span>}
           </span>
           <span className="num">{hiker.track.length} pkts</span>

@@ -64,3 +64,30 @@ src/
 ## Shortcuts
 
 `/` search · `3` 2D/3D terrain · `M` mute siren · `Esc` close / deselect
+
+
+## Firebase live GPS integration
+
+**1. Paste your Firebase URL** — open [`src/firebase.config.ts`](src/firebase.config.ts) and set `DATABASE_URL`
+(Firebase Console → Realtime Database → Data tab, e.g. `https://xxx-default-rtdb.asia-southeast1.firebasedatabase.app`).
+The same file holds the root node (`pendaki`) and the LIVE / DELAYED / OFFLINE thresholds
+(`LIVE_WITHIN_SEC`, `OFFLINE_AFTER_SEC`). The URL can also be pasted at runtime via **Connect Firebase** (overrides the file).
+
+**2. Run locally**
+
+```bash
+npm install
+npm run dev        # open the printed http://localhost:5173
+```
+
+**3. Data** — the dashboard watches `pendaki/` with a single `onValue` listener; every child is a hiker
+(`device_id, latitude, longitude, altitude, temperature, status, rssi, snr, updated_at`). New device IDs appear automatically.
+Markers need valid coordinates (lat −90..90, lon −180..180, not 0,0). Connection state (LIVE / DELAYED / OFFLINE, from
+`updated_at`) is separate from the ESP32 `status` (NORMAL / SOS).
+
+**4. Test live updates** — in Firebase Console, edit `pendaki/RAKSA_01/latitude` / `longitude` (and set `updated_at` to the current
+epoch ms, e.g. `Date.now()` in the browser console). The marker glides to the new spot and the popup/cards update without refresh.
+Add `pendaki/RAKSA_02` with the same fields to see a second marker.
+
+**Permission errors** — if the dashboard shows "Permission denied", your Realtime Database rules block reads of `pendaki`.
+Allow read on that node (e.g. `"pendaki": { ".read": true }`) or use Firebase Auth. The dashboard never changes rules.

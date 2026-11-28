@@ -1,53 +1,78 @@
-import { onChildAdded, onChildChanged, onValue, ref, type DataSnapshot } from 'firebase/database';
+import { onValue, ref } from 'firebase/database';
 import type { FirebaseWebConfig } from './firebase';
-import { databasePath, disposeFirebase, getFirebaseDatabase, manageFirebaseListener, normalizeDatabaseRoot } from './firebase';
+import { disposeFirebase, getFirebaseDatabase, manageFirebaseListener, normalizeDatabaseRoot } from './firebase';
 import { parseFirebasePacket } from './parser';
 import type { LogEntry } from '../types';
 
 export interface FirebaseStreamHandlers {
   onConnection: (connected: boolean) => void;
   onPacket: (entry: LogEntry) => void;
+  /** Called after every snapshot with the number of device nodes found (0 = empty node). */
+  onDeviceCount?: (count: number) => void;
   onError: (error: Error) => void;
 }
 
-function asError(error: Error): Error {
+function friendlyError(error: Error & { code?: string }): Error {
+  if (error.code === 'PERMISSION_DENIED' || /permission[_ ]denied/i.test(error.message)) {
+    return new Error(
+      'Permission denied by Firebase Realtime Database rules. Allow read access to the "pendaki" node (".read": true) or sign in with Firebase Auth. Rules were not modified by the dashboard.',
+    );
+  }
   return error;
 }
 
-/** Streams current hiker snapshots and each subsequent child update over RTDB. */
+/**
+ * Streams the whole `pendaki/` node with ONE onValue listener. Every child is a hiker device
+ * (any device ID is accepted). A packet is emitted only for devices whose data actually changed.
+ */
 export function subscribeFirebaseStream(config: FirebaseWebConfig, rootPath: string, handlers: FirebaseStreamHandlers): () => void {
   const database = getFirebaseDatabase(config);
   const root = normalizeDatabaseRoot(rootPath);
   let sequence = 0;
+  const lastSeen = new Map<string, string>();
   const disposers: Array<() => void> = [];
+  const fail = (error: Error) => handlers.onError(friendlyError(error));
 
   try {
     const connectedRef = ref(database, '.info/connected');
     disposers.push(
       manageFirebaseListener(
         connectedRef,
-        onValue(
-          connectedRef,
-          (snapshot) => handlers.onConnection(snapshot.val() === true),
-          (error) => handlers.onError(asError(error)),
-        ),
+        onValue(connectedRef, (snapshot) => handlers.onConnection(snapshot.val() === true), fail),
       ),
     );
 
-    const hikersRef = ref(database, databasePath(root, 'hikers'));
-    const receive = (snapshot: DataSnapshot) => {
-      handlers.onPacket(parseFirebasePacket(snapshot.val(), snapshot.key ?? '', ++sequence));
-    };
+    const rootRef = root ? ref(database, root) : ref(database);
     disposers.push(
       manageFirebaseListener(
-        hikersRef,
-        onChildAdded(hikersRef, receive, (error) => handlers.onError(asError(error))),
-      ),
-    );
-    disposers.push(
-      manageFirebaseListener(
-        hikersRef,
-        onChildChanged(hikersRef, receive, (error) => handlers.onError(asError(error))),
+        rootRef,
+        onValue(
+          rootRef,
+          (snapshot) => {
+            let count = 0;
+            snapshot.forEach((child) => {
+              const key = child.key;
+              if (!key) return;
+              count++;
+              const value: unknown = child.val();
+              let signature: string;
+              try {
+                signature = JSON.stringify(value);
+              } catch {
+                return;
+              }
+              if (lastSeen.get(key) === signature) return;
+              lastSeen.set(key, signature);
+              try {
+                handlers.onPacket(parseFirebasePacket(value, key, ++sequence));
+              } catch (error) {
+                console.error(`Unable to parse device ${key}`, error);
+              }
+            });
+            handlers.onDeviceCount?.(count);
+          },
+          fail,
+        ),
       ),
     );
 

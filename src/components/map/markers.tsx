@@ -1,15 +1,39 @@
-import { memo } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { Marker } from 'react-map-gl/maplibre';
 import type { Hiker, NodeType, RelayNode } from '../../types';
 
-const HIKER_COLOR = { SOS: '#DC2626', NORMAL: '#166534', OFFLINE: '#64748B' } as const;
+const HIKER_COLOR = { SOS: '#DC2626', NORMAL: '#166534' } as const;
+const LINK_RING = { LIVE: '#166534', DELAYED: '#D97706', OFFLINE: '#64748B' } as const;
+
+/** Smoothly glides a marker to its newest coordinates instead of teleporting. */
+function useAnimatedPosition(lon: number, lat: number, durationMs = 900) {
+  const [pos, setPos] = useState({ lon, lat });
+  const current = useRef(pos);
+  current.current = pos;
+  useEffect(() => {
+    const from = current.current;
+    if (from.lon === lon && from.lat === lat) return;
+    const start = performance.now();
+    let frame = 0;
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / durationMs);
+      const e = 1 - (1 - t) ** 3;
+      setPos({ lon: from.lon + (lon - from.lon) * e, lat: from.lat + (lat - from.lat) * e });
+      if (t < 1) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [lon, lat, durationMs]);
+  return pos;
+}
 
 function HikerMarkerBase({ hiker, selected, onSelect }: { hiker: Hiker; selected: boolean; onSelect: () => void }) {
   const sos = hiker.status === 'SOS';
+  const pos = useAnimatedPosition(hiker.latest.lon, hiker.latest.lat);
   return (
     <Marker
-      longitude={hiker.latest.lon}
-      latitude={hiker.latest.lat}
+      longitude={pos.lon}
+      latitude={pos.lat}
       anchor="center"
       style={{ zIndex: sos ? 30 : selected ? 20 : 10 }}
       onClick={(e) => {
@@ -17,7 +41,7 @@ function HikerMarkerBase({ hiker, selected, onSelect }: { hiker: Hiker; selected
         onSelect();
       }}
     >
-      <div className="relative h-[18px] w-[18px] cursor-pointer">
+      <div className={`relative h-[18px] w-[18px] cursor-pointer ${hiker.link === 'OFFLINE' ? 'opacity-70' : ''}`}>
         {sos && (
           <>
             <span className="radar-ring" />
@@ -26,11 +50,15 @@ function HikerMarkerBase({ hiker, selected, onSelect }: { hiker: Hiker; selected
         )}
         {selected && <span className="absolute -inset-[5px] rounded-full border-2 border-ink/80" />}
         <span
+          className="absolute -inset-[2px] rounded-full"
+          style={{ border: `2px ${hiker.link === 'LIVE' ? 'solid' : 'dashed'} ${LINK_RING[hiker.link]}` }}
+        />
+        <span
           className="absolute inset-0 rounded-full border-[2.5px] border-white"
           style={{ background: HIKER_COLOR[hiker.status], boxShadow: '0 1px 4px rgba(15,23,42,.45)' }}
         />
         <span
-          className={`num absolute left-1/2 top-full mt-[5px] -translate-x-1/2 whitespace-nowrap rounded-chip border px-1.5 py-px text-[10px] font-bold leading-[14px] shadow-hair ${
+          className={`num absolute left-1/2 top-full mt-[7px] -translate-x-1/2 whitespace-nowrap rounded-chip border px-1.5 py-px text-[10px] font-bold leading-[14px] shadow-hair ${
             sos ? 'border-crimson bg-crimson text-white' : 'border-line-strong bg-white text-ink'
           }`}
         >

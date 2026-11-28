@@ -7,13 +7,11 @@ import { EmptyState } from './EmptyState';
 import { useConfig } from '../store/config';
 import { useTelemetry } from '../store/telemetry';
 import { useUi } from '../store/ui';
-import { getEnvironmentFirebaseConfig } from '../lib/firebase';
+import { FIREBASE_STATUS } from '../lib/firebase';
+import { FILTER_LABELS, FILTER_ORDER, filterCounts, filterHikers } from '../lib/filter';
 import type { Hiker, SidebarFilter } from '../types';
 
 export function Sidebar({ hikers }: { hikers: Hiker[] }) {
-  const firebaseConfig = useConfig((s) => s.firebaseConfig);
-  const connectionDisabled = useConfig((s) => s.connectionDisabled);
-  const configured = !connectionDisabled && Boolean(firebaseConfig || getEnvironmentFirebaseConfig());
   const pairings = useConfig((s) => s.pairings);
   const acks = useConfig((s) => s.acks);
   const error = useTelemetry((s) => s.error);
@@ -27,7 +25,6 @@ export function Sidebar({ hikers }: { hikers: Hiker[] }) {
   const selectedId = useUi((s) => s.selectedId);
   const focusHiker = useUi((s) => s.focusHiker);
   const openPairing = useUi((s) => s.openPairing);
-  const openConnect = useUi((s) => s.openConnect);
   const setSidebarOpen = useUi((s) => s.setSidebarOpen);
   const searchFocusNonce = useUi((s) => s.searchFocusNonce);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -36,32 +33,11 @@ export function Sidebar({ hikers }: { hikers: Hiker[] }) {
     if (searchFocusNonce > 0) inputRef.current?.focus();
   }, [searchFocusNonce]);
 
-  const counts = useMemo(
-    () => ({
-      all: hikers.length,
-      sos: hikers.filter((h) => h.status === 'SOS').length,
-      normal: hikers.filter((h) => h.status === 'NORMAL').length,
-      offline: hikers.filter((h) => h.status === 'OFFLINE').length,
-    }),
-    [hikers],
-  );
+  const counts = useMemo(() => filterCounts(hikers), [hikers]);
 
-  const visible = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return hikers.filter((h) => {
-      if (filter !== 'all' && h.status.toLowerCase() !== filter) return false;
-      if (!q) return true;
-      const pair = pairings[h.id];
-      return h.id.toLowerCase().includes(q) || (pair?.leader ?? '').toLowerCase().includes(q);
-    });
-  }, [hikers, filter, search, pairings]);
+  const visible = useMemo(() => filterHikers(hikers, filter, search, (h) => pairings[h.id]?.leader ?? ''), [hikers, filter, search, pairings]);
 
-  const options: { value: SidebarFilter; label: string; count: number }[] = [
-    { value: 'all', label: 'All', count: counts.all },
-    { value: 'sos', label: 'SOS', count: counts.sos },
-    { value: 'normal', label: 'Normal', count: counts.normal },
-    { value: 'offline', label: 'Offline', count: counts.offline },
-  ];
+  const options: { value: SidebarFilter; label: string; count: number }[] = FILTER_ORDER.map((value) => ({ value, label: FILTER_LABELS[value], count: counts[value] }));
 
   return (
     <div className="flex h-full w-[310px] flex-col">
@@ -87,21 +63,18 @@ export function Sidebar({ hikers }: { hikers: Hiker[] }) {
       </div>
 
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto p-2.5">
-        {hikers.length === 0 && !configured && <EmptyState />}
+        {hikers.length === 0 && !FIREBASE_STATUS.config && <EmptyState message={FIREBASE_STATUS.error} />}
 
-        {hikers.length === 0 && configured && (
+        {hikers.length === 0 && FIREBASE_STATUS.config && (
           <div className="px-4 py-10 text-center">
-            <h3 className="text-[14px] font-bold">{error ? 'Source unreachable' : 'Awaiting valid packets'}</h3>
+            <h3 className="text-[14px] font-bold">{error ? 'Source unreachable' : 'Awaiting hiker data'}</h3>
             <p className="mt-1 text-[12.5px] leading-relaxed text-ink-2">
               {error
                 ? error
                 : total > 0
-                  ? `${total} packets received, ${corrupt} quarantined. No packet passed the integrity filter yet — see System Log.`
-                  : 'Firebase is connected but no packets have arrived yet.'}
+                  ? `${total} packets received, ${corrupt} quarantined. No packet passed the integrity filter yet. See System Log.`
+                  : 'Connected. Waiting for devices under the pendaki node.'}
             </p>
-            <button className="btn mt-4" onClick={() => openConnect('firebase')}>
-              Connection settings
-            </button>
           </div>
         )}
 
@@ -127,3 +100,4 @@ export function Sidebar({ hikers }: { hikers: Hiker[] }) {
     </div>
   );
 }
+

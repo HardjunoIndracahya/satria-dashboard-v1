@@ -19,6 +19,8 @@ export function parseTimestamp(input: string): number | null {
   if (!value) return null;
   if (/^\d{10}$/.test(value)) return Number(value) * 1000;
   if (/^\d{13}$/.test(value)) return Number(value);
+  // Other bare numbers (e.g. ESP32 millis() uptime) are not wall-clock times.
+  if (/^\d+(?:\.\d+)?$/.test(value)) return null;
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
@@ -147,7 +149,7 @@ export function parseFirebasePacket(value: unknown, fallbackId: string, row: num
   const record = value as Record<string, unknown>;
   const rawPayload = field(record, ['payload', 'raw', 'rawData', 'data', 'message']);
   if (rawPayload.includes('|')) {
-    return resultFromBuilt(parsePipe(rawPayload, fallbackId), row, rawPayload, record.timestamp ?? record.ts ?? record.time);
+    return resultFromBuilt(parsePipe(rawPayload, fallbackId), row, rawPayload, record.updated_at ?? record.updatedAt ?? record.timestamp ?? record.ts ?? record.time);
   }
 
   const built = build({
@@ -161,5 +163,5 @@ export function parseFirebasePacket(value: unknown, fallbackId: string, row: num
     snr: field(record, ['snr']),
     battery: field(record, ['battery', 'baterai']),
   });
-  return resultFromBuilt(built, row, JSON.stringify(record), record.timestamp ?? record.ts ?? record.time);
+  return resultFromBuilt(built, row, JSON.stringify(record), record.updated_at ?? record.updatedAt ?? record.timestamp ?? record.ts ?? record.time);
 }

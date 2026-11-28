@@ -1,24 +1,49 @@
 import { deleteApp, initializeApp, type FirebaseOptions } from 'firebase/app';
 import { getDatabase, off, type Database, type DatabaseReference } from 'firebase/database';
+import { dashboardSettings, firebaseConfig } from '../../firebase-config.js';
 
 export type FirebaseWebConfig = FirebaseOptions & { databaseURL: string };
+
+export const DATABASE_ROOT = dashboardSettings.databaseRoot;
+export const LIVE_WITHIN_MS = Math.max(5, dashboardSettings.liveWithinSec) * 1000;
+export const OFFLINE_AFTER_MS = Math.max(dashboardSettings.offlineAfterSec, dashboardSettings.liveWithinSec) * 1000;
+
+export interface FirebaseConfigStatus {
+  config?: FirebaseWebConfig;
+  error?: string;
+}
+
+const isPlaceholder = (value: unknown) => typeof value !== 'string' || !value.trim() || /YOUR[_.]|YOUR$/i.test(value);
+
+/** Validates firebase-config.js once. Placeholder values are dropped, never sent to Firebase. */
+function resolveFirebaseConfig(): FirebaseConfigStatus {
+  const raw = firebaseConfig as Record<string, unknown> | undefined;
+  if (!raw || typeof raw !== 'object') return { error: 'firebase-config.js does not export a firebaseConfig object.' };
+  if (isPlaceholder(raw.databaseURL)) {
+    return { error: 'Firebase is not configured. Open firebase-config.js and set databaseURL (and the other web-app values).' };
+  }
+  let url: URL;
+  try {
+    url = new URL(String(raw.databaseURL));
+  } catch {
+    return { error: 'Invalid databaseURL in firebase-config.js. Use the https:// Realtime Database URL from Firebase Console.' };
+  }
+  if (url.protocol !== 'https:') return { error: 'databaseURL in firebase-config.js must start with https://.' };
+
+  const config: FirebaseWebConfig = { databaseURL: url.origin };
+  for (const [key, value] of Object.entries(raw)) {
+    if (key !== 'databaseURL' && !isPlaceholder(value)) (config as unknown as Record<string, string>)[key] = String(value).trim();
+  }
+  return { config };
+}
+
+export const FIREBASE_STATUS: FirebaseConfigStatus = resolveFirebaseConfig();
 
 let activeApp: ReturnType<typeof initializeApp> | null = null;
 let activeDatabase: Database | null = null;
 let activeConfigKey = '';
 let appSequence = 0;
 const listenerCleanups = new Set<() => void>();
-
-export function getEnvironmentFirebaseConfig(): FirebaseWebConfig | null {
-  const { VITE_FIREBASE_DATABASE_URL, VITE_FIREBASE_API_KEY, VITE_FIREBASE_PROJECT_ID, VITE_FIREBASE_APP_ID } = import.meta.env;
-  if (!VITE_FIREBASE_DATABASE_URL || !VITE_FIREBASE_API_KEY || !VITE_FIREBASE_PROJECT_ID || !VITE_FIREBASE_APP_ID) return null;
-  return {
-    databaseURL: VITE_FIREBASE_DATABASE_URL,
-    apiKey: VITE_FIREBASE_API_KEY,
-    projectId: VITE_FIREBASE_PROJECT_ID,
-    appId: VITE_FIREBASE_APP_ID,
-  };
-}
 
 export function getFirebaseDatabase(config: FirebaseWebConfig): Database {
   const key = JSON.stringify(config);
@@ -59,11 +84,5 @@ export function disposeFirebase(): void {
 }
 
 export function normalizeDatabaseRoot(path: string): string {
-  const segments = path.split('/').filter(Boolean);
-  return segments.join('/');
+  return path.split('/').filter(Boolean).join('/');
 }
-
-export function databasePath(root: string, child: string): string {
-  return [normalizeDatabaseRoot(root), child].filter(Boolean).join('/');
-}
-

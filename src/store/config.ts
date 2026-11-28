@@ -1,26 +1,19 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Pairing, RelayNode } from '../types';
-import type { FirebaseWebConfig } from '../lib/firebase';
 
 export interface AckRecord {
   id: string;
   at: number;
 }
 
+/** Local operator data only. Firebase connection settings live exclusively in firebase-config.js. */
 interface ConfigState {
-  firebaseConfig: FirebaseWebConfig | null;
-  databaseRoot: string;
-  connectionDisabled: boolean;
-  offlineAfterMin: number;
   nodes: RelayNode[];
   pairings: Record<string, Pairing>;
   acks: Record<string, AckRecord>;
   muted: boolean;
 
-  connectFirebase: (config: FirebaseWebConfig, root: string) => void;
-  disconnect: () => void;
-  setOfflineAfter: (min: number) => void;
   upsertNode: (n: RelayNode) => void;
   removeNode: (id: string) => void;
   toggleNode: (id: string) => void;
@@ -32,18 +25,11 @@ interface ConfigState {
 export const useConfig = create<ConfigState>()(
   persist(
     (set) => ({
-      firebaseConfig: null,
-      databaseRoot: '/',
-      connectionDisabled: false,
-      offlineAfterMin: 5,
       nodes: [],
       pairings: {},
       acks: {},
       muted: false,
 
-      connectFirebase: (firebaseConfig, databaseRoot) => set({ firebaseConfig, databaseRoot, connectionDisabled: false }),
-      disconnect: () => set({ connectionDisabled: true }),
-      setOfflineAfter: (min) => set({ offlineAfterMin: Math.max(1, Math.min(240, min)) }),
       upsertNode: (n) =>
         set((s) => ({
           nodes: s.nodes.some((x) => x.id === n.id) ? s.nodes.map((x) => (x.id === n.id ? n : x)) : [...s.nodes, n],
@@ -62,17 +48,12 @@ export const useConfig = create<ConfigState>()(
     }),
     {
       name: 'raksa.config.v1',
-      version: 1,
-      partialize: (s) => ({
-        firebaseConfig: s.firebaseConfig,
-        databaseRoot: s.databaseRoot,
-        connectionDisabled: s.connectionDisabled,
-        offlineAfterMin: s.offlineAfterMin,
-        nodes: s.nodes,
-        pairings: s.pairings,
-        acks: s.acks,
-        muted: s.muted,
-      }),
+      version: 3,
+      migrate: (persisted) => {
+        const s = (persisted ?? {}) as Partial<ConfigState>;
+        return { nodes: s.nodes ?? [], pairings: s.pairings ?? {}, acks: s.acks ?? {}, muted: s.muted ?? false } as ConfigState;
+      },
+      partialize: (s) => ({ nodes: s.nodes, pairings: s.pairings, acks: s.acks, muted: s.muted }),
     },
   ),
 );

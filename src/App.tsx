@@ -1,13 +1,18 @@
 import { Toaster } from 'sonner';
 import { TopBar } from './components/TopBar';
 import { EmergencyBanner } from './components/EmergencyBanner';
-import { ConnectModal } from './components/ConnectModal';
 import { PairingModal } from './components/PairingModal';
+import { OverviewView } from './views/OverviewView';
 import { DashboardView } from './views/DashboardView';
+import { OverviewView } from './views/OverviewView';
+import { HikersView } from './views/HikersView';
+import { AnalyticsView } from './views/AnalyticsView';
+import { HikersView } from './views/HikersView';
+import { AnalyticsView } from './views/AnalyticsView';
 import { RelayNodesView } from './views/RelayNodesView';
 import { SystemLogView } from './views/SystemLogView';
 import { useUi } from './store/ui';
-import { useAlarm, useHikers, useHotkeys, useFirebaseStream, useUnackedSos } from './hooks';
+import { useAlarm, useHikers, useHotkeys, useFirebaseStream, useSosNotifications, useUnackedSos } from './hooks';
 
 export default function App() {
   const view = useUi((s) => s.view);
@@ -15,7 +20,9 @@ export default function App() {
   const unacked = useUnackedSos(hikers);
 
   useFirebaseStream();
+  useSosNotifications(hikers);
   useAlarm(unacked.length);
+  useSosNotifications(hikers);
   useHotkeys();
 
   return (
@@ -23,11 +30,16 @@ export default function App() {
       <TopBar sosActive={unacked.length > 0} />
       <EmergencyBanner unacked={unacked} />
       <main className="flex min-h-0 flex-1 flex-col">
+        {view === 'overview' && <OverviewView hikers={hikers} />}
+        {view === 'overview' && <OverviewView hikers={hikers} />}
         {view === 'dashboard' && <DashboardView hikers={hikers} />}
+        {view === 'hikers' && <HikersView hikers={hikers} />}
+        {view === 'analytics' && <AnalyticsView hikers={hikers} />}
+        {view === 'hikers' && <HikersView hikers={hikers} />}
+        {view === 'analytics' && <AnalyticsView hikers={hikers} />}
         {view === 'nodes' && <RelayNodesView />}
         {view === 'log' && <SystemLogView />}
       </main>
-      <ConnectModal />
       <PairingModal />
       <Toaster
         position="top-center"
@@ -48,3 +60,4 @@ export default function App() {
     </div>
   );
 }
+
