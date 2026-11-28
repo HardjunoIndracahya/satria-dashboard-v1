@@ -8,13 +8,13 @@ import Map, {
   type MapLayerMouseEvent,
   type MapRef,
 } from 'react-map-gl/maplibre';
-import { animate } from 'framer-motion';
-import { X } from 'lucide-react';
+import { AnimatePresence, animate, motion } from 'framer-motion';
+import { PanelLeftOpen, X } from 'lucide-react';
 import type { Feature, FeatureCollection, LineString, Point } from 'geojson';
 import { HikerMarker, NodeMarker, PillMarker, ScrubMarker } from './markers';
 import { MapToolbar } from './MapToolbar';
 import { Inspector } from './Inspector';
-import { HikerPopup, MapLegend } from './MapExtras';
+import { HikerPopup, MapLegend, type PopupAnchor } from './MapExtras';
 import { useConfig } from '../../store/config';
 import { useSos } from '../../store/sos';
 import { useTelemetry } from '../../store/telemetry';
@@ -98,6 +98,8 @@ export function MapView({ hikers, totalHikers = hikers.length }: { hikers: Hiker
   const connectionState = useTelemetry((s) => s.connectionState);
 
   const selectedId = useUi((s) => s.selectedId);
+  const sidebarOpen = useUi((s) => s.sidebarOpen);
+  const setSidebarOpen = useUi((s) => s.setSidebarOpen);
   const focusNonce = useUi((s) => s.focusNonce);
   const terrain3d = useUi((s) => s.terrain3d);
   const basemap = useUi((s) => s.basemap);
@@ -119,8 +121,82 @@ export function MapView({ hikers, totalHikers = hikers.length }: { hikers: Hiker
 
   const selected = useMemo(() => hikers.find((h) => h.id === selectedId) ?? null, [hikers, selectedId]);
   const [popupId, setPopupId] = useState<string | null>(null);
+  const [popupAnchor, setPopupAnchor] = useState<PopupAnchor>('bottom');
+  const [legendCollapsed, setLegendCollapsed] = useState<boolean>(() =>
+    typeof window !== 'undefined' ? window.innerWidth < 768 : false,
+  );
+  const prevSelectedRef = useRef<boolean>(false);
   const popupHiker = useMemo(() => hikers.find((h) => h.id === popupId) ?? null, [hikers, popupId]);
   const activeNodes = useMemo(() => nodes.filter((n) => n.active), [nodes]);
+
+  // Auto-collapse legend when Inspector opens so Inspector has maximum vertical space;
+  // restore expanded legend on desktop/laptop when Inspector closes.
+  useEffect(() => {
+    const hasSelected = Boolean(selected);
+    if (hasSelected && !prevSelectedRef.current) {
+      setLegendCollapsed(true);
+    } else if (!hasSelected && prevSelectedRef.current && typeof window !== 'undefined' && window.innerWidth >= 768) {
+      setLegendCollapsed(false);
+    }
+    prevSelectedRef.current = hasSelected;
+  }, [selected]);
+
+  // Keep popup cleanly synchronized with selection (no stale or duplicate popups)
+  useEffect(() => {
+    if (!selectedId) {
+      setPopupId(null);
+    } else if (popupId && popupId !== selectedId) {
+      setPopupId(selectedId);
+    }
+  }, [selectedId, popupId]);
+
+  const computeSafeLeftInset = useCallback(
+    (containerWidth: number, hasInspector: boolean, isLegendCollapsed: boolean) => {
+      if (containerWidth < 720) return 16;
+      if (hasInspector) return Math.min(340, Math.round(containerWidth * 0.42));
+      return isLegendCollapsed ? 24 : 226;
+    },
+    [],
+  );
+
+  const updatePopupAnchor = useCallback(
+    (target: Hiker | null) => {
+      const map = mapRef.current?.getMap();
+      if (!map || !target) return;
+      const container = map.getContainer();
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      if (w === 0 || h === 0) return;
+
+      const pt = map.project([target.latest.lon, target.latest.lat]);
+      const leftSafe = computeSafeLeftInset(w, Boolean(selected), legendCollapsed);
+      const rightSafe = 60;
+      const popW = Math.min(296, w - 44);
+      const popH = Math.min(280, Math.round(h * 0.52));
+
+      const nearTop = pt.y - popH < 24;
+      const nearBottom = pt.y + popH > h - 44;
+      const nearLeft = pt.x - popW / 2 < leftSafe;
+      const nearRight = pt.x + popW / 2 > w - rightSafe;
+
+      let next: PopupAnchor = 'bottom';
+      if (nearLeft && !nearRight) {
+        next = nearTop ? 'top-left' : nearBottom ? 'bottom-left' : 'left';
+      } else if (nearRight && !nearLeft) {
+        next = nearTop ? 'top-right' : nearBottom ? 'bottom-right' : 'right';
+      } else if (nearTop && !nearBottom) {
+        next = 'top';
+      } else {
+        next = 'bottom';
+      }
+      setPopupAnchor((prev) => (prev === next ? prev : next));
+    },
+    [computeSafeLeftInset, selected, legendCollapsed],
+  );
+
+  useEffect(() => {
+    if (loaded && popupHiker) updatePopupAnchor(popupHiker);
+  }, [loaded, popupHiker, updatePopupAnchor]);
 
   /* ----------------------------- geo json data ----------------------------- */
   const trail = useMemo(() => {
@@ -195,13 +271,17 @@ export function MapView({ hikers, totalHikers = hikers.length }: { hikers: Hiker
     const pts = [...hikersRef.current.map((h) => h.latest), ...useConfig.getState().nodes.filter((n) => n.active)];
     const b = boundsOf(pts);
     if (!b) return;
+    const w = map.getContainer().clientWidth;
+    const hasInspector = Boolean(useUi.getState().selectedId);
+    const leftPad = computeSafeLeftInset(w, hasInspector, legendCollapsed) + 20;
+    const padding = { top: 80, bottom: 72, left: Math.min(leftPad, Math.round(w * 0.45)), right: 76 };
     const pitch = terrainRef.current ? FLY_PITCH_3D : 0;
     if (pts.length === 1 || (b[0][0] === b[1][0] && b[0][1] === b[1][1])) {
-      map.flyTo({ center: b[0], zoom: 14, pitch, duration: 1400, essential: true });
+      map.flyTo({ center: b[0], zoom: 14, pitch, padding, duration: 1400, essential: true });
     } else {
-      map.fitBounds(b, { padding: { top: 90, bottom: 70, left: 90, right: 90 }, maxZoom: 15, pitch, duration: 1400, essential: true });
+      map.fitBounds(b, { padding, maxZoom: 15, pitch, duration: 1400, essential: true });
     }
-  }, []);
+  }, [computeSafeLeftInset, legendCollapsed]);
 
   // first valid data → fit once
   const didFit = useRef(false);
@@ -216,7 +296,7 @@ export function MapView({ hikers, totalHikers = hikers.length }: { hikers: Hiker
     }
   }, [hikers.length, loaded, fitAll]);
 
-  // cinematic fly-to on hiker focus (falls back to persistent SOS coords if live telemetry isn't loaded yet)
+  // cinematic fly-to on hiker focus — applies asymmetric left padding so marker & popup sit in unobstructed map space
   useEffect(() => {
     if (!loaded || focusNonce === 0) return;
     const map = mapRef.current?.getMap();
@@ -227,15 +307,18 @@ export function MapView({ hikers, totalHikers = hikers.length }: { hikers: Hiker
     const lat = h?.latest.lat ?? inc?.latitude ?? null;
     const lon = h?.latest.lon ?? inc?.longitude ?? null;
     if (lat === null || lon === null) return;
+    const w = map.getContainer().clientWidth;
+    const leftPad = computeSafeLeftInset(w, true, true);
     map.flyTo({
       center: [lon, lat],
       zoom: Math.max(map.getZoom(), 13.5),
       pitch: terrainRef.current ? FLY_PITCH_3D : 0,
-      duration: 1700,
+      padding: { top: 96, bottom: 72, left: leftPad, right: 64 },
+      duration: 1400,
       curve: 1.35,
       essential: true,
     });
-  }, [focusNonce, loaded]);
+  }, [focusNonce, loaded, computeSafeLeftInset]);
 
   // basemap visibility
   useEffect(() => {
@@ -341,6 +424,7 @@ export function MapView({ hikers, totalHikers = hikers.length }: { hikers: Hiker
           const v = e.viewState;
           saveCamera({ longitude: v.longitude, latitude: v.latitude, zoom: v.zoom, pitch: v.pitch, bearing: v.bearing });
           setBearing(v.bearing);
+          if (popupHiker) updatePopupAnchor(popupHiker);
         }}
         onMouseMove={onMouseMove}
         onClick={onMapClick}
@@ -455,9 +539,17 @@ export function MapView({ hikers, totalHikers = hikers.length }: { hikers: Hiker
               onSelect={() => useUi.getState().setView('emergencies')}
             />
           ))}
-        {popupHiker && <HikerPopup hiker={popupHiker} sosIncident={activeSos[popupHiker.id]} onClose={() => setPopupId(null)} />}
+        {popupHiker && (
+          <HikerPopup
+            hiker={popupHiker}
+            sosIncident={activeSos[popupHiker.id]}
+            anchor={popupAnchor}
+            onClose={() => setPopupId(null)}
+          />
+        )}
       </Map>
 
+      {/* Right overlay column: MapToolbar */}
       <MapToolbar
         basemap={basemap}
         onBasemap={setBasemap}
@@ -473,46 +565,82 @@ export function MapView({ hikers, totalHikers = hikers.length }: { hikers: Hiker
         onVector={toggleVector}
       />
 
-      <Inspector hiker={selected} />
-      <MapLegend hikers={hikers} activeSos={activeSos} onFocus={(id) => { useUi.getState().focusHiker(id); setPopupId(id); }} />
-
-      {measure && (
-        <div className="absolute bottom-10 left-1/2 z-20 flex -translate-x-1/2 items-center gap-3 rounded-panel border border-line bg-surface px-3.5 py-2 shadow-float">
-          <span className="label">Measure</span>
-          {measureData ? (
-            <span className="num text-[12.5px] font-semibold">
-              {formatDistance(measureData.dist)} <span className="text-ink-muted">•</span> {formatBearing(measureData.brg)}
-              {measureData.delta !== null && (
-                <>
-                  {' '}
-                  <span className="text-ink-muted">•</span> {formatDelta(measureData.delta)}
-                </>
-              )}
-            </span>
-          ) : (
-            <span className="text-[12.5px] text-ink-2">{measurePts.length === 0 ? 'Click the map to place point A' : 'Click to place point B'}</span>
+      {/* Unified Left Overlay Column: Collapsed Hikers Toggle -> Inspector -> Collapsible Monitored Hikers & Legend.
+          Flexbox vertical stacking guarantees ZERO overlap between these panels at any screen height or width. */}
+      <div className="pointer-events-none absolute bottom-9 left-3 top-3 z-20 flex max-w-[calc(100%-64px)] flex-col items-start gap-2">
+        <AnimatePresence>
+          {!sidebarOpen && (
+            <motion.button
+              initial={{ opacity: 0, x: -8 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -8 }}
+              onClick={() => setSidebarOpen(true)}
+              className="btn pointer-events-auto shrink-0 shadow-float"
+              aria-label="Show hiker list"
+            >
+              <PanelLeftOpen size={15} />
+              Hikers
+              <span className="num text-[11px] text-ink-muted">{totalHikers}</span>
+            </motion.button>
           )}
-          <button className="btn btn-ghost h-6 w-6 !px-0" onClick={toggleMeasure} aria-label="Exit measure mode">
-            <X size={14} />
-          </button>
-        </div>
-      )}
+        </AnimatePresence>
 
-      {showEmptyNotice && (
-        <div className="pointer-events-none absolute bottom-10 left-1/2 z-10 max-w-[420px] -translate-x-1/2 rounded-panel border border-line bg-surface/95 px-3.5 py-2 text-center text-[12px] text-ink-2 shadow-float">
-          {errorText ?? 'No telemetry source connected — basemap only'}
+        <Inspector hiker={selected} />
+
+        <div className="mt-auto">
+          <MapLegend
+            hikers={hikers}
+            activeSos={activeSos}
+            collapsed={legendCollapsed}
+            onToggleCollapse={() => setLegendCollapsed((c) => !c)}
+            onFocus={(id) => {
+              useUi.getState().focusHiker(id);
+              setPopupId(id);
+            }}
+          />
         </div>
-      )}
-      {!showEmptyNotice && hikers.length === 0 && (
-        <div className="pointer-events-none absolute bottom-10 left-1/2 z-10 max-w-[420px] -translate-x-1/2 rounded-panel border border-line bg-surface/95 px-3.5 py-2 text-center text-[12px] text-ink-2 shadow-float">
-          {errorText ??
-            (totalHikers > 0
-              ? 'No hikers match the current filter'
-              : emptyRoot
-                ? 'Connected — no hiker data under the database node yet'
-                : 'Connected — waiting for hikers with a valid GPS fix')}
-        </div>
-      )}
+      </div>
+
+      {/* Bottom-Center overlay slot: Measure bar & Connection/Filter status notices */}
+      <div className="pointer-events-none absolute inset-x-3 bottom-3 z-10 flex flex-col items-center gap-2 md:pl-[224px] md:pr-[60px]">
+        {measure && (
+          <div className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-2.5 rounded-panel border border-line bg-surface px-3.5 py-2 shadow-float">
+            <span className="label">Measure</span>
+            {measureData ? (
+              <span className="num text-[12.5px] font-semibold">
+                {formatDistance(measureData.dist)} <span className="text-ink-muted">•</span> {formatBearing(measureData.brg)}
+                {measureData.delta !== null && (
+                  <>
+                    {' '}
+                    <span className="text-ink-muted">•</span> {formatDelta(measureData.delta)}
+                  </>
+                )}
+              </span>
+            ) : (
+              <span className="text-[12.5px] text-ink-2">{measurePts.length === 0 ? 'Click the map to place point A' : 'Click to place point B'}</span>
+            )}
+            <button className="btn btn-ghost h-6 w-6 !px-0" onClick={toggleMeasure} aria-label="Exit measure mode">
+              <X size={14} />
+            </button>
+          </div>
+        )}
+
+        {showEmptyNotice && (
+          <div className="max-w-[420px] rounded-panel border border-line bg-surface/95 px-3.5 py-2 text-center text-[12px] text-ink-2 shadow-float">
+            {errorText ?? 'No telemetry source connected — basemap only'}
+          </div>
+        )}
+        {!showEmptyNotice && hikers.length === 0 && (
+          <div className="max-w-[420px] rounded-panel border border-line bg-surface/95 px-3.5 py-2 text-center text-[12px] text-ink-2 shadow-float">
+            {errorText ??
+              (totalHikers > 0
+                ? 'No hikers match the current filter'
+                : emptyRoot
+                  ? 'Connected — no hiker data under the database node yet'
+                  : 'Connected — waiting for hikers with a valid GPS fix')}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

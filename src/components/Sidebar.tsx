@@ -44,7 +44,7 @@ export function Sidebar({ hikers }: { hikers: Hiker[] }) {
   const options: { value: SidebarFilter; label: string; count: number }[] = FILTER_ORDER.map((value) => ({ value, label: FILTER_LABELS[value], count: counts[value] }));
 
   return (
-    <div className="flex h-full w-[310px] flex-col">
+    <div className="flex h-full w-full max-w-[310px] min-w-0 flex-col md:w-[310px]">
       <div className="space-y-2.5 border-b border-line p-3">
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
