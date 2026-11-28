@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { AppView, BasemapId, SidebarFilter } from '../types';
+import { useWeather } from './weather';
 
 interface UiState {
   view: AppView;
@@ -95,6 +96,10 @@ export const useUi = create<UiState>((set, get) => ({
     }
     if (s.pairingId) {
       set({ pairingId: null });
+      return true;
+    }
+    if (useWeather.getState().panelOpen) {
+      useWeather.getState().setPanelOpen(false);
       return true;
     }
     if (s.measure) {

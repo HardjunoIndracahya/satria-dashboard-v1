@@ -16,6 +16,8 @@ import { useAuth } from '../store/auth';
 import { useSos } from '../store/sos';
 import { useTelemetry } from '../store/telemetry';
 import { useUi } from '../store/ui';
+import { useWeather } from '../store/weather';
+import { clearWeatherServiceCache } from './weatherService';
 import type { OperatorUser, UserRole } from '../types';
 
 function friendlyAuthError(error: unknown): string {
@@ -52,6 +54,8 @@ function clearProtectedClientState(): void {
   useTelemetry.getState().reset();
   useSos.getState().reset();
   useUi.getState().resetProtectedUi();
+  clearWeatherServiceCache();
+  useWeather.getState().reset();
 }
 
 interface VerifiedRoleResult {

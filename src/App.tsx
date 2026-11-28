@@ -1,6 +1,7 @@
 import { Toaster } from 'sonner';
 import { TopBar } from './components/TopBar';
 import { EmergencyBanner } from './components/EmergencyBanner';
+import { GlobalFooter } from './components/GlobalFooter';
 import { PairingModal } from './components/PairingModal';
 import { RescueConfirmModal } from './components/RescueConfirmModal';
 import { LoginView } from './views/LoginView';
@@ -28,6 +29,7 @@ import {
   useSosNotifications,
   useUnackedSosIncidents,
 } from './hooks';
+import { usePersonalWeather } from './hooks/usePersonalWeather';
 
 /**
  * Protected dashboard shell — ONLY mounted once Firebase Authentication AND
@@ -41,6 +43,7 @@ function ProtectedDashboard() {
   const unackedIncidents = useUnackedSosIncidents(activeIncidents);
 
   useFirebaseStream(true);
+  usePersonalWeather(true);
   useSosNotifications(activeIncidents, hikers);
   useAlarm(unackedIncidents.length);
   useHotkeys();
@@ -61,6 +64,7 @@ function ProtectedDashboard() {
         {view === 'log' && <SystemLogView />}
         {view === 'users' && isAdmin && <AdminUsersView />}
       </main>
+      <GlobalFooter />
       <PairingModal />
       <RescueConfirmModal hikers={hikers} />
     </div>
